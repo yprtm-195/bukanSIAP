@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JSON Backdate Generator - Cimory SIAP</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --accent-primary: #58a6ff;
+            --text-primary: #c9d1d9;
+            --border-default: #30363d;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            background: var(--bg-secondary);
+            padding: 30px;
+            border-radius: 8px;
+            border: 1px solid var(--border-default);
+            width: 100%;
+            max-width: 600px;
+        }
+        h2 { margin-top: 0; color: #fff; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: 500; }
+        input, textarea {
+            width: 100%;
+            padding: 10px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-default);
+            color: var(--text-primary);
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-family: monospace;
+        }
+        input:focus, textarea:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+        textarea { height: 100px; resize: vertical; }
+        button {
+            background: var(--accent-primary);
+            color: #000;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            font-size: 16px;
+        }
+        button:hover { opacity: 0.9; }
+        .help-text { font-size: 12px; color: #8b949e; margin-top: 5px; display: block; }
+        #status { margin-top: 15px; padding: 10px; border-radius: 4px; display: none; }
+        .success { background: rgba(63, 185, 80, 0.1); color: #3fb950; border: 1px solid #3fb950; }
+        .error { background: rgba(248, 81, 73, 0.1); color: #f85149; border: 1px solid #f85149; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>🛠️ JSON Generator (via Excel/Sheet)</h2>
+    <p style="font-size: 14px; color: #8b949e;">Ubah data Google Sheet lu otomatis jadi format absen RPS.json siap tembak.</p>
+
+    <div class="form-group">
+        <label>1. Target Tanggal Kunjungan</label>
+        <input type="date" id="target-date" value="2026-04-02">
+    </div>
+
+    <div class="form-group">
+        <label>2. Paste Data dari Google Sheet</label>
+        <textarea id="tsv-input" placeholder="Paste (Ctrl+V) tabel dari Sheet di sini..."></textarea>
+        <span class="help-text">Copy langsung tabel yang ada Kolom A sampai Kolom I (tanpa header gapapa). Pastiin urutannya: KodeCustomer, Nama, ... Lat(H), Lng(I).</span>
+    </div>
+
+    <button onclick="generateJSON()">✨ Generate RPS.json</button>
+
+    <div id="status"></div>
+</div>
+
+<script>
+async function generateJSON() {
+    const dateInput = document.getElementById('target-date').value;
+    const tsvInput = document.getElementById('tsv-input').value;
+    
+    if (!dateInput || !tsvInput.trim()) {
+        showStatus('Isi dulu tanggal sama paste datanya bro!', 'error');
+        return;
+    }
+
+    try {
+        // Fetch Master Database just as a Template
+        const response = await fetch('../RPS.json');
+        if (!response.ok) throw new Error("Gagal load base template.");
+        const database = await response.json();
+        
+        let foundStores = [];
+        let generatedStok = [];
+
+        // Extract a "Stock Template" from any store in database so we get all products
+        let stockTemplate = [];
+        if (database.ListRKMStok && database.ListRKMStok.length > 0) {
+            const firstStoreCode = database.ListRKMStok[0].KodeCustomer;
+            stockTemplate = database.ListRKMStok.filter(s => s.KodeCustomer === firstStoreCode);
+        }
+
+        // Parse TSV rows
+        const rows = tsvInput.split('\n').filter(r => r.trim());
+        let successCount = 0;
+
+        for (const rowText of rows) {
+            const cols = rowText.split('\t').map(c => c.trim());
+            // Based on screenshot:
+            // 0: store_code, 1: store_name, 2: branch, 3: branch_name, 4: fc, 5: flag, 6: mds, 7: lat, 8: lng
+            if (cols.length < 9) continue; // Skip bad rows
+
+            const storeCode = cols[0];
+            const storeName = cols[1];
+            const branchName = cols[3];
+            const lat = parseFloat(cols[7]) || 0;
+            const lng = parseFloat(cols[8]) || 0;
+
+            if (!storeCode || storeCode === "store_code") continue; // Skip header
+
+            // 1. Build Store Object
+            let newStore = {
+                RKMD: {
+                    TanggalRKM: `${dateInput}T00:00:00`,
+                    KodeMerchandiser: "MDSSATMND01", // Or cols[6] if valid
+                    KodeCustomer: storeCode,
+                    Tambahan: false,
+                    Longitude: lng,
+                    Latitude: lat,
+                    CheckInTime: null,
+                    CheckInLongitude: 0,
+                    CheckInLatitude: 0,
+                    CheckOutTime: null,
+                    CheckOutLongitude: 0,
+                    CheckOutLatitude: 0,
+                    KodeAlasan: "", KodeAlasSO: "", Reason: "", ReasonTime: null, ReasonLongitude: 0, ReasonLatitude: 0
+                },
+                NamaCustomer: storeName,
+                Alamat01: "Belum ada alamat",
+                Alamat02: branchName || "MANADO",
+                Alamat03: "",
+                Telp01: "", Telp02: "", Contact: ""
+            };
+            foundStores.push(newStore);
+
+            // 2. Build Stock Array for this store by duplicating the template
+            stockTemplate.forEach(stockItem => {
+                generatedStok.push({
+                    ...stockItem,
+                    TanggalRKM: `${dateInput}T00:00:00Z`,
+                    KodeCustomer: storeCode.padEnd(15, ' '), // Cimory likes padded strings
+                    JumKarton: 0, JumSatuan: 0, JumCtnE: 0, JumPcsE: 0 // Reset stock cleanly
+                });
+            });
+            
+            successCount++;
+        }
+
+        if (successCount === 0) {
+            showStatus('Gagal: Gak ada data tabel valid yang kebaca. Pastiin pas copy ada kolom A sampe I.', 'error');
+            return;
+        }
+
+        // Update RKMHeader date if it exists
+        if (database.RKMHeader) {
+            database.RKMHeader.TanggalRKM = `${dateInput}T00:00:00Z`;
+            database.RKMHeader.DownloadTime = `${dateInput}T08:00:00Z`; // Default mock download time
+        }
+
+        // Build Final RPS JSON
+        const finalRPS = {
+            ...database,
+            ListRKMDetail: foundStores,
+            ListRKMStok: generatedStok
+        };
+
+        // Download logic
+        const blob = new Blob([JSON.stringify(finalRPS, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `RPS_Generated_${dateInput}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        showStatus(`Savage! Berhasil ngerakit data buat ${successCount} toko dari Sheet!`, 'success');
+
+    } catch (error) {
+        showStatus('Error: ' + error.message, 'error');
+    }
+}
+
+function showStatus(msg, type) {
+    const el = document.getElementById('status');
+    el.innerHTML = msg;
+    el.className = type;
+    el.style.display = 'block';
+}
+</script>
+
+</body>
+</html>
