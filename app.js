@@ -140,7 +140,6 @@ async function checkAndRestoreSession() {
                          renderStoreCards();
                          updateStoresCount(); // Update angka di footer (Siap Upload dll)                         
                          // UI Feedback
-                         collapseUploadSection();
                          const statusDiv = document.getElementById('daily-status'); // or any status
                          if (statusDiv) {
                              statusDiv.textContent = 'Session Restored';
@@ -443,18 +442,26 @@ function reOpenStore(storeCode) {
 // ============================================
 function renderStoreCards() {
     storesContainer.innerHTML = '';
-
     const allStoreCodes = Object.keys(storeStates);
 
-    // Pisahin toko jadi dua grup
-    const pendingStores = allStoreCodes.filter(code => !storeStates[code].isSynced);
-    const completedStores = allStoreCodes.filter(code => storeStates[code].isSynced);
+    // Filter toko jadi 3 grup sesuai progres
+    const pendingStores = allStoreCodes.filter(code => {
+        const s = storeStates[code];
+        return !s.isSynced && s.status !== 'checked-out';
+    });
+    
+    const readyToUploadStores = allStoreCodes.filter(code => {
+        const s = storeStates[code];
+        return !s.isSynced && s.status === 'checked-out';
+    });
 
-    // 1. Render Grup Pending (Belum Beres / Siap Upload)
+    const syncedStores = allStoreCodes.filter(code => storeStates[code].isSynced);
+
+    // 1. Render Grup: BELUM DIKERJAKAN
     if (pendingStores.length > 0) {
         const header = document.createElement('div');
         header.className = 'stores-group-header';
-        header.innerHTML = `<span>🏃‍♂️ TO-DO LIST (${pendingStores.length})</span>`;
+        header.innerHTML = `<span>⏳ BELUM DIKERJAKAN (${pendingStores.length})</span>`;
         storesContainer.appendChild(header);
 
         pendingStores.forEach(storeCode => {
@@ -463,14 +470,27 @@ function renderStoreCards() {
         });
     }
 
-    // 2. Render Grup Completed (Sudah Terupload)
-    if (completedStores.length > 0) {
+    // 2. Render Grup: SIAP UPLOAD
+    if (readyToUploadStores.length > 0) {
         const header = document.createElement('div');
-        header.className = 'stores-group-header completed-header';
-        header.innerHTML = `<span>✅ BERES / TERUPLOAD (${completedStores.length})</span>`;
+        header.className = 'stores-group-header ready-header';
+        header.innerHTML = `<span>🚀 SIAP UPLOAD (${readyToUploadStores.length})</span>`;
         storesContainer.appendChild(header);
 
-        completedStores.forEach(storeCode => {
+        readyToUploadStores.forEach(storeCode => {
+            const card = createStoreCard(storeCode, storeStates[storeCode]);
+            storesContainer.appendChild(card);
+        });
+    }
+
+    // 3. Render Grup: SUDAH TERUPLOAD
+    if (syncedStores.length > 0) {
+        const header = document.createElement('div');
+        header.className = 'stores-group-header completed-header';
+        header.innerHTML = `<span>✅ SUDAH TERUPLOAD (${syncedStores.length})</span>`;
+        storesContainer.appendChild(header);
+
+        syncedStores.forEach(storeCode => {
             const card = createStoreCard(storeCode, storeStates[storeCode]);
             storesContainer.appendChild(card);
         });
@@ -674,22 +694,78 @@ function renderGPSSection(storeCode, state) {
     `;
 }
 
+// Helper: Enter to Tab Navigation (Enhanced for Android)
+window.handleEnterAsTab = function(e) {
+    // Nangkep Enter (13) atau Next (Android Action)
+    if (e.key === 'Enter' || e.keyCode === 13) {
+        e.preventDefault();
+        
+        // Cari kartu toko (parent) biar navigasi nggak loncat ke toko lain
+        const card = e.target.closest('.store-card');
+        if (!card) return;
+
+        // Cari semua input/button yang aktif di dalam kartu ini saja
+        const selector = 'input:not([type="file"]):not([disabled]), button:not([disabled])';
+        const elements = Array.from(card.querySelectorAll(selector)).filter(el => {
+            const style = window.getComputedStyle(el);
+            return style.display !== 'none' && style.visibility !== 'hidden' && el.offsetWidth > 0;
+        });
+        
+        const index = elements.indexOf(e.target);
+        
+        if (index > -1 && index < elements.length - 1) {
+            const nextEl = elements[index + 1];
+            nextEl.focus();
+            if (nextEl.select && nextEl.tagName === 'INPUT') nextEl.select();
+        } else {
+            // Selesai di kartu ini, tutup keyboard
+            e.target.blur();
+        }
+    }
+};
+
+// Helper: Auto-focus next input after 2 digits
+window.autoFocusNext = function(el) {
+    if (el.value.length >= 2) {
+        const card = el.closest('.store-card');
+        if (!card) return;
+        
+        const selector = 'input:not([type="file"]):not([disabled])';
+        const inputs = Array.from(card.querySelectorAll(selector)).filter(el => {
+            const style = window.getComputedStyle(el);
+            return style.display !== 'none' && style.visibility !== 'hidden' && el.offsetWidth > 0;
+        });
+        
+        const index = inputs.indexOf(el);
+        if (index > -1 && index < inputs.length - 1) {
+            const nextInp = inputs[index + 1];
+            nextInp.focus();
+            if (nextInp.select) nextInp.select();
+        }
+    }
+};
+
 // Map Initialization Logic
 function initMap(storeCode) {
     if (!storeStates[storeCode]) return;
     
-    // Check if map already exists
-    if (storeStates[storeCode].mapInstance) {
-        // Just invalidate size to ensure it renders correctly after display:none
-        setTimeout(() => {
-             storeStates[storeCode].mapInstance.invalidateSize();
-        }, 100);
-        return;
-    }
-
     const mapId = `map-${storeCode}`;
     const mapEl = document.getElementById(mapId);
     if (!mapEl) return;
+
+    // HAPUS MAP LAMA JIKA ADA (Krusial karena DOM di-refresh oleh refreshStoreCard)
+    if (storeStates[storeCode].mapInstance) {
+        try {
+            storeStates[storeCode].mapInstance.remove();
+        } catch (e) {
+            console.warn("Gagal remove map:", e);
+        }
+        storeStates[storeCode].mapInstance = null;
+        storeStates[storeCode].userMarker = null;
+    }
+
+    // Pastikan kontainer bersih
+    mapEl.innerHTML = '';
 
     // Default coords: Store Location or Default Jakarta
     const storeLat = parseFloat(storeStates[storeCode].storeData.RKMD.Latitude) || -6.2088;
@@ -724,7 +800,7 @@ function initMap(storeCode) {
         shadowSize: [41, 41]
     });
     const userMarker = L.marker([userLat, userLng], {draggable: !isReadOnly, icon: redIcon}).addTo(map)
-        .bindTooltip('🎯 Lokasi Spoof', {permanent: true, direction: 'left', className: 'map-label-spoof'});
+        .bindTooltip('🎯 Lokasi Kamu (Tarik)', {permanent: true, direction: 'left', className: 'map-label-spoof'});
 
     // Event: Drag User Marker
     userMarker.on('dragend', function(e) {
@@ -746,6 +822,11 @@ function initMap(storeCode) {
     // Save instance
     storeStates[storeCode].mapInstance = map;
     storeStates[storeCode].userMarker = userMarker;
+
+    // Pastikan ukuran map pas (untuk layar HP)
+    setTimeout(() => {
+        map.invalidateSize();
+    }, 150);
 }
 
 function renderTimelineSection(storeCode, state) {
@@ -794,10 +875,10 @@ function renderTimelineSection(storeCode, state) {
                 <!-- CHECK IN ROW -->
                 <div class="timeline-simple-row">
                     <div class="timeline-time-block">
-                        <label class="timeline-simple-label">In</label>
-                        <input type="text" class="time-input-simple time-input-hh time-input-checkin-hh" placeholder="00" inputmode="numeric" maxlength="2" value="${fmtTime(state.checkInTime).split(':')[0] || ''}" ${checkInDisabled ? 'disabled' : ''}>
+                        <label class="timeline-simple-label">In <small style="font-size: 8px; opacity: 0.5;">(24h)</small></label>
+                        <input type="text" class="time-input-simple time-input-hh time-input-checkin-hh" placeholder="HH" inputmode="numeric" maxlength="2" value="${fmtTime(state.checkInTime).split(':')[0] || ''}" ${checkInDisabled ? 'disabled' : ''} onkeydown="handleEnterAsTab(event)" onkeypress="handleEnterAsTab(event)" oninput="autoFocusNext(this)" onfocus="this.select()">
                         <span class="time-input-separator">:</span>
-                        <input type="text" class="time-input-simple time-input-mm time-input-checkin-mm" placeholder="00" inputmode="numeric" maxlength="2" value="${fmtTime(state.checkInTime).split(':')[1] || ''}" ${checkInDisabled ? 'disabled' : ''}>
+                        <input type="text" class="time-input-simple time-input-mm time-input-checkin-mm" placeholder="mm" inputmode="numeric" maxlength="2" value="${fmtTime(state.checkInTime).split(':')[1] || ''}" ${checkInDisabled ? 'disabled' : ''} onkeydown="handleEnterAsTab(event)" onkeypress="handleEnterAsTab(event)" onfocus="this.select()">
                     </div>
                     <button
                         class="btn-checkin"
@@ -816,7 +897,8 @@ function renderTimelineSection(storeCode, state) {
                         <div class="timeline-photo-item">
                             <label class="timeline-photo-label">Check-In</label>
                             <label class="custom-file-btn" ${isReadOnly ? 'style="opacity:.4;pointer-events:none;"' : ''}>
-                                📷 ${photos.checkin.length > 0 ? photos.checkin.length + ' foto' : 'Pilih'}
+                                <span style="font-size: 1.5rem;">📷</span>
+                                <span>${photos.checkin.length > 0 ? photos.checkin.length + ' foto' : 'Pilih'}</span>
                                 <input type="file" accept="image/*" onchange="handlePhotoUpload('${storeCode}', 'checkin', this.files, 1)" ${photoDisabled} hidden>
                             </label>
                             ${renderThumbnails(photos.checkin)}
@@ -824,7 +906,8 @@ function renderTimelineSection(storeCode, state) {
                         <div class="timeline-photo-item">
                             <label class="timeline-photo-label">Before</label>
                             <label class="custom-file-btn" ${isReadOnly ? 'style="opacity:.4;pointer-events:none;"' : ''}>
-                                📷 ${photos.before.length > 0 ? photos.before.length + ' foto' : 'Pilih'}
+                                <span style="font-size: 1.5rem;">📷</span>
+                                <span>${photos.before.length > 0 ? photos.before.length + ' foto' : 'Pilih'}</span>
                                 <input type="file" accept="image/*" multiple onchange="handlePhotoUpload('${storeCode}', 'before', this.files, 20)" ${photoDisabled} hidden>
                             </label>
                             ${renderThumbnails(photos.before)}
@@ -832,7 +915,8 @@ function renderTimelineSection(storeCode, state) {
                         <div class="timeline-photo-item">
                             <label class="timeline-photo-label">After</label>
                             <label class="custom-file-btn" ${isReadOnly ? 'style="opacity:.4;pointer-events:none;"' : ''}>
-                                📷 ${photos.after.length > 0 ? photos.after.length + ' foto' : 'Pilih'}
+                                <span style="font-size: 1.5rem;">📷</span>
+                                <span>${photos.after.length > 0 ? photos.after.length + ' foto' : 'Pilih'}</span>
                                 <input type="file" accept="image/*" multiple onchange="handlePhotoUpload('${storeCode}', 'after', this.files, 20)" ${photoDisabled} hidden>
                             </label>
                             ${renderThumbnails(photos.after)}
@@ -843,10 +927,10 @@ function renderTimelineSection(storeCode, state) {
                 <!-- CHECK OUT ROW -->
                 <div class="timeline-simple-row">
                     <div class="timeline-time-block">
-                        <label class="timeline-simple-label">Out</label>
-                        <input type="text" class="time-input-simple time-input-hh time-input-checkout-hh" placeholder="00" inputmode="numeric" maxlength="2" value="${fmtTime(state.checkOutTime).split(':')[0] || ''}" ${checkOutDisabled ? 'disabled' : ''}>
+                        <label class="timeline-simple-label">Out <small style="font-size: 8px; opacity: 0.5;">(24h)</small></label>
+                        <input type="text" class="time-input-simple time-input-hh time-input-checkout-hh" placeholder="HH" inputmode="numeric" maxlength="2" value="${fmtTime(state.checkOutTime).split(':')[0] || ''}" ${checkOutDisabled ? 'disabled' : ''} onkeydown="handleEnterAsTab(event)" oninput="autoFocusNext(this)" onfocus="this.select()">
                         <span class="time-input-separator">:</span>
-                        <input type="text" class="time-input-simple time-input-mm time-input-checkout-mm" placeholder="00" inputmode="numeric" maxlength="2" value="${fmtTime(state.checkOutTime).split(':')[1] || ''}" ${checkOutDisabled ? 'disabled' : ''}>
+                        <input type="text" class="time-input-simple time-input-mm time-input-checkout-mm" placeholder="mm" inputmode="numeric" maxlength="2" value="${fmtTime(state.checkOutTime).split(':')[1] || ''}" ${checkOutDisabled ? 'disabled' : ''} onkeydown="handleEnterAsTab(event)" onfocus="this.select()">
                     </div>
                     <button
                         class="btn-checkout"
@@ -875,15 +959,16 @@ function renderStockSection(storeCode, state) {
             <div class="stock-item">
                 <span class="stock-name">${itemCode} - ${name}</span>
                 <div style="display: flex; align-items: center; gap: 4px;">
-                    <input type="number" 
-                           class="manual-stock-input" 
-                           style="width: 50px; text-align: center; border-radius: 6px; border: 1px solid var(--border-default); background: var(--bg-tertiary); color: ${qtyColor}; font-weight: ${qty > 0 ? 'bold' : 'normal'}; padding: 2px 4px; font-size: 13px;" 
-                           value="${qty}" 
+                    <input type="number"
+                           class="manual-stock-input"
+                           style="width: 50px; text-align: center; border-radius: 6px; border: 1px solid var(--border-default); background: var(--bg-tertiary); color: ${qtyColor}; font-weight: ${qty > 0 ? 'bold' : 'normal'}; padding: 2px 4px; font-size: 13px;"
+                           value="${qty}"
                            min="0"
                            inputmode="numeric"
                            onchange="updateManualStock('${storeCode}', '${itemCode}', this.value)"
-                           ${state.isSynced ? 'disabled' : ''}>
-                    <span style="font-size: 11px; color: var(--text-secondary);">pcs</span>
+                           onkeydown="handleEnterAsTab(event)"
+                           onkeypress="handleEnterAsTab(event)"
+                           ${state.isSynced ? 'disabled' : ''}>                    <span style="font-size: 11px; color: var(--text-secondary);">pcs</span>
                 </div>
             </div>
         `;
@@ -1182,7 +1267,6 @@ function showCheckoutModal(storeCode, timeToSet) {
     const state = storeStates[storeCode];
     _pendingCheckout = { storeCode, timeToSet, mapInstance: null };
 
-    const storeName = state.storeData.RKMD.NamaCustomer || storeCode;
     const fmtFull = (ts) => {
         if (!ts) return '—';
         const d = new Date(ts);
@@ -1193,7 +1277,10 @@ function showCheckoutModal(storeCode, timeToSet) {
         return m >= 60 ? `${Math.floor(m/60)}j ${m%60}m` : `${m} menit`;
     };
 
-    document.getElementById('modal-store-name').textContent   = storeName;
+    const rawName = state.storeData.NamaCustomer || state.storeData.RKMD.NamaCustomer || 'Unknown Store';
+    const storeTitle = `[${storeCode}] ${rawName}`;
+    
+    document.getElementById('modal-store-name').textContent   = storeTitle;
     document.getElementById('modal-gps-val').textContent      = `${state.gpsLat.toFixed(5)}, ${state.gpsLng.toFixed(5)}`;
     document.getElementById('modal-checkin-val').textContent  = fmtFull(state.checkInTime);
     document.getElementById('modal-checkout-val').textContent = fmtFull(timeToSet);
@@ -1241,7 +1328,7 @@ function showCheckoutModal(storeCode, timeToSet) {
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
         L.marker([storeLat, storeLng]).addTo(map)
-            .bindTooltip(`🏪 ${storeName}`, { permanent: true, direction: 'right', className: 'map-label-store' });
+            .bindTooltip(`🏪 ${storeTitle}`, { permanent: true, direction: 'right', className: 'map-label-store' });
 
         const redIcon = new L.Icon({
             iconUrl: 'https://cdn.rawgit.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
@@ -1264,7 +1351,9 @@ function confirmCheckout() {
     const state = storeStates[storeCode];
     state.checkOutTime = timeToSet;
     state.status = 'checked-out';
-    refreshStoreCard(storeCode);
+    state.isExpanded = false; // AUTO COLLAPSE
+    
+    renderStoreCards(); // Refresh seluruh list agar pindah grup
     updateStoresCount();
     saveSession();
 
@@ -1449,19 +1538,24 @@ async function handleDualApiUpload() {
     // Reset UI
     uploadProgress.innerHTML = `
         <div class="upload-item" id="global-prog">
-            <div class="upload-label" id="global-prog-label">Menyiapkan Upload...</div>
+            <div class="upload-label">
+                <span id="global-prog-label">🚀 Menyiapkan upload...</span>
+                <span id="global-prog-percentage">0%</span>
+            </div>
             <div class="upload-bar-container">
                 <div class="upload-bar" id="global-prog-bar" style="width: 0%"></div>
             </div>
             <div class="upload-status-text" id="global-prog-text">Pending...</div>
         </div>
     `;
+    uploadProgress.classList.add('visible');
     uploadProgress.classList.remove('hidden');
     btnUpload.disabled = true;
     btnUpload.innerHTML = '<span class="btn-icon">⏳</span> Uploading...';
 
     const progBar = document.getElementById('global-prog-bar');
     const progLabel = document.getElementById('global-prog-label');
+    const progPct = document.getElementById('global-prog-percentage');
     const progText = document.getElementById('global-prog-text');
 
     const totalStores = activeStores.length;
@@ -1471,6 +1565,7 @@ async function handleDualApiUpload() {
 
     const updateGlobalStatus = (pct, mainTitle, subDesc) => {
         progBar.style.width = `${pct}%`;
+        if (progPct) progPct.textContent = `${Math.round(pct)}%`;
         if (mainTitle) progLabel.textContent = mainTitle;
         if (subDesc) progText.textContent = subDesc;
     };
@@ -1478,13 +1573,13 @@ async function handleDualApiUpload() {
     // Process each store
     for (let i = 0; i < totalStores; i++) {
         const storeCode = activeStores[i];
-        const storeName = storeStates[storeCode].storeData.RKMD.NamaCustomer || storeCode;
+        const storeName = storeStates[storeCode].storeData.NamaCustomer || storeStates[storeCode].storeData.RKMD.NamaCustomer || storeCode;
         
         try {
             const basePct = (i / totalStores) * 100;
             const stepPct = 100 / totalStores; // How much % one store takes
             
-            updateGlobalStatus(basePct + (stepPct * 0.2), `Toko ${i+1}/${totalStores}: ${storeName}`, 'Mengirim Data kunjungan...');
+            updateGlobalStatus(basePct + (stepPct * 0.2), `📤 [${i+1}/${totalStores}] ${storeName}`, 'Mengirim Data kunjungan...');
             await uploadStoreData(storeCode);
             
             const photos = buildPhotoPayload(storeCode, storeStates[storeCode]);

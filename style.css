@@ -608,6 +608,13 @@ body {
     letter-spacing: 0.8px;
 }
 
+.ready-header {
+    background: rgba(210, 153, 34, 0.1);
+    border-left-color: var(--accent-warning);
+    color: var(--accent-warning);
+    margin-top: 16px;
+}
+
 .completed-header {
     background: rgba(63, 185, 80, 0.05);
     border-left-color: var(--accent-success);
@@ -1069,6 +1076,19 @@ body {
 .time-input-hh, .time-input-mm {
     width: 24px;
     flex: none !important;
+    transition: all var(--transition-fast);
+}
+
+.time-input-hh:focus, .time-input-mm:focus, .manual-stock-input:focus {
+    color: var(--accent-primary);
+    transform: scale(1.1);
+    outline: none;
+}
+
+.timeline-time-block:focus-within {
+    border-color: var(--accent-primary);
+    background: rgba(88, 166, 255, 0.05);
+    box-shadow: 0 0 0 1px var(--accent-primary);
 }
 
 .time-input-simple:disabled {
@@ -1184,19 +1204,22 @@ body {
 /* Custom file button */
 .custom-file-btn {
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 8px 4px;
+    aspect-ratio: 1 / 1;
+    width: 100%;
     background: var(--bg-tertiary);
     border: 1px dashed var(--border-default);
-    border-radius: 6px;
+    border-radius: 8px;
     color: var(--text-secondary);
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 600;
     cursor: pointer;
     transition: all var(--transition-fast);
     text-align: center;
     gap: 4px;
+    padding: 8px;
 }
 
 .custom-file-btn:hover {
@@ -1853,19 +1876,55 @@ select:focus {
     font-size: 0.9rem;
 }
 
-.upload-bar-container {
-    height: 8px;
+/* Progress Bar Styling */
+.upload-status-footer {
+    width: 100%;
+    margin-top: 10px;
     background: var(--bg-tertiary);
-    border-radius: 4px;
+    border-radius: 8px;
+    padding: 10px;
+    border: 1px solid var(--border-default);
+    display: none; /* Hidden by default */
+}
+
+.upload-status-footer.visible {
+    display: block;
+}
+
+.upload-item {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.upload-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-primary);
+    display: flex;
+    justify-content: space-between;
+}
+
+.upload-bar-container {
+    width: 100%;
+    height: 6px;
+    background: var(--bg-primary);
+    border-radius: 3px;
     overflow: hidden;
-    margin-bottom: var(--space-xs);
 }
 
 .upload-bar {
     height: 100%;
-    background: var(--accent-primary);
+    background: var(--accent-success);
     width: 0%;
-    transition: width 0.3s ease, background-color 0.3s ease;
+    transition: width 0.3s ease;
+}
+
+.upload-status-text {
+    font-size: 10px;
+    color: var(--text-secondary);
+    text-align: right;
 }
 
 .upload-status-text {

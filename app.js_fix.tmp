@@ -1,0 +1,14 @@
+    
+    // Check stock (warning only)
+    const hasStock = state.stockData && state.stockData.some(item => item.JumSatuan > 0);
+    if (!hasStock) {
+        warnings.push('No stock data entered');
+    }
+    
+    return {
+        isComplete: issues.length === 0,
+        hasWarnings: warnings.length > 0,
+        issues,
+        warnings
+    };
+}
