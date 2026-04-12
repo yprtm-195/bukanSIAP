@@ -63,37 +63,44 @@ function updateAccountTooltip() {
     if (accountHint) accountHint.textContent = saved ? `Akun: ${saved.split('@')[0]}` : 'Tarik RKM dari DMS';
 }
 
-function toggleActionMenu() {
+window.toggleActionMenu = function(e) {
+    if (e) e.stopPropagation();
     const dropdown = document.getElementById('action-menu-dropdown');
     const btn = document.getElementById('btn-action-menu');
     const isOpen = !dropdown.classList.contains('hidden');
-    
+
     if (isOpen) {
         closeActionMenu();
     } else {
         dropdown.classList.remove('hidden');
         btn.classList.add('open');
-        // Setup click-outside listener
+
+        // Listener buat klik di mana aja buat nutup menu
+        const closeOnOutside = (event) => {
+            const wrapper = document.getElementById('action-menu-wrapper');
+            if (wrapper && !wrapper.contains(event.target)) {
+                closeActionMenu();
+                document.removeEventListener('click', closeOnOutside);
+            }
+        };
+
+        // Tunggu bentar baru pasang biar ga kena klik yang sekarang
         setTimeout(() => {
-            document.addEventListener('click', handleOutsideMenuClick, { once: true });
+            document.addEventListener('click', closeOnOutside);
         }, 10);
     }
-}
+};
 
-function closeActionMenu() {
+window.closeActionMenu = function() {
     const dropdown = document.getElementById('action-menu-dropdown');
     const btn = document.getElementById('btn-action-menu');
     if (dropdown) dropdown.classList.add('hidden');
     if (btn) btn.classList.remove('open');
-}
+};
 
 function handleOutsideMenuClick(e) {
-    const wrapper = document.getElementById('action-menu-wrapper');
-    if (wrapper && !wrapper.contains(e.target)) {
-        closeActionMenu();
-    }
+    // Fungsi lama diganti oleh logic di dalam toggleActionMenu
 }
-
 // ============================================
 // UPLOAD SECTION TOGGLE
 // ============================================
@@ -344,28 +351,16 @@ async function doDownloadRKM(email) {
     } catch (error) {
         console.error('RKM download failed:', error);
         
-        // Tangani CORS error secara khusus
+        // Tangani CORS error secara khusus (Harusnya sudah aman lewat proxy)
         const isCORS = error.message === 'Failed to fetch' || error.name === 'TypeError';
-        
+
         if (isCORS) {
             statusDiv.className = 'header-status error';
-            statusDiv.textContent = '❌ CORS Error — Server DMS belum izinkan akses dari browser';
-            
-            setTimeout(() => {
-                alert(
-                    '🚨 CORS BLOCKED\n\n' +
-                    'Server dms.cimory.com memblokir akses langsung dari browser.\n\n' +
-                    'Solusi:\n' +
-                    '1. Minta tim IT aktifkan CORS header di server DMS, atau\n' +
-                    '2. Kita buat proxy via Google Apps Script (ga perlu akses server)\n\n' +
-                    'Untuk sementara gunakan tombol 📂 Pilih File dengan file JSON yang didapat manual.'
-                );
-            }, 500);
+            statusDiv.textContent = '❌ Koneksi Bermasalah — Pastikan internet lu nyala atau proxy Cloudflare lagi nggak down bro!';
         } else {
             statusDiv.className = 'header-status error';
             statusDiv.textContent = `❌ ${error.message}`;
-        }
-    } finally {
+        }    } finally {
         if (btn) {
             btn.disabled = false;
             btn.innerHTML = '<span class="btn-icon">☁️</span> <span class="mobile-hidden">Server Sinkron</span>';
