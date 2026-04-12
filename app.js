@@ -241,9 +241,9 @@ async function fetchExternalStock() {
 
 
 
-const DMS_RKM_URL = "https://dms.cimory.com/api/sfaservice/downloadrkm";
+const DMS_RKM_URL = "https://cimory-proxy.yohandi-pratama.workers.dev/api/sfaservice/downloadrkm";
 
-// Load Daily Data — Sekarang dari DMS Server langsung!
+// Load Daily Data — Sekarang dari DMS Server via Cloudflare Proxy!
 async function loadDailyRKM() {
     // Cek sesi aktif dulu
     if (Object.keys(storeStates).length > 0) {
