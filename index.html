@@ -20,10 +20,14 @@
 </head>
 <body>
     <script>
-        // Register Service Worker
+        // Register Service Worker with auto-update
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('./sw.js')
-                .then(reg => console.log('[PWA] SW registered:', reg.scope))
+                .then(reg => {
+                    console.log('[PWA] SW registered:', reg.scope);
+                    // Check for updates every time page loads
+                    reg.update();
+                })
                 .catch(err => console.log('[PWA] SW failed:', err));
         }
     </script>
