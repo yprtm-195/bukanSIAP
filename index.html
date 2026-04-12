@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cimory SIAP - Multi-Store Tool V2</title>
+    <title>Bukan SIAP V3</title>
     <link rel="stylesheet" href="style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -27,6 +27,21 @@
                 .catch(err => console.log('[PWA] SW failed:', err));
         }
     </script>
+
+    <!-- Global Loading Overlay -->
+    <div id="global-loader" class="global-loader hidden">
+        <div class="loader-content">
+            <div class="loader-spinner"></div>
+            <h3 id="loader-title">Proses Sync Data...</h3>
+            <p id="loader-text">Tunggu bang lagi, lagi proses sync data produk yang main di toko ini.</p>
+            
+            <div class="progress-bar-container">
+                <div id="loader-progress-bar" class="progress-bar-fill"></div>
+            </div>
+            <div id="loader-progress-text" class="progress-text">0%</div>
+        </div>
+    </div>
+
     <div class="app-container">
         <!-- Fixed Header -->
         <header class="app-header">
@@ -34,21 +49,69 @@
                 <div class="header-left">
                     <img src="icons/logo.png" alt="Logo" class="app-logo">
                     <div class="header-text">
-                        <h1 class="app-title">CIMORY SIAP <span class="version-badge">V2</span></h1>
+                        <h1 class="app-title">Bukan SIAP <span class="version-badge">V3</span></h1>
                         <p class="app-subtitle">Batch Visit Processor</p>
                     </div>
                 </div>
                 <div class="header-right">
                     <input type="file" id="file-input" accept=".json, text/plain" style="display: none;">
-                    <button class="btn-secondary btn-icon-only" onclick="document.getElementById('file-input').click()" title="Load JSON Backup">
-                        <span class="btn-icon">📁</span>
-                    </button>
-                    <button class="btn-primary" onclick="loadDailyRKM()" id="btn-load-daily">
-                        <span class="btn-icon">🔄</span> <span class="mobile-hidden">Load</span>
-                    </button>
+                    
+                    <!-- Single Action Menu -->
+                    <div class="action-menu-wrapper" id="action-menu-wrapper">
+                        <button class="btn-action-menu" id="btn-action-menu" onclick="toggleActionMenu()" title="Menu Aksi">
+                            <span class="btn-icon action-menu-icon">⋮</span>
+                            <span class="mobile-hidden">Menu</span>
+                        </button>
+                        
+                        <div class="action-menu-dropdown hidden" id="action-menu-dropdown">
+                            <button class="action-menu-item" onclick="closeActionMenu(); document.getElementById('file-input').click()">
+                                <span class="ami-icon">📂</span>
+                                <div class="ami-text">
+                                    <span class="ami-title">Pilih File</span>
+                                    <span class="ami-sub">Load RKM lokal</span>
+                                </div>
+                            </button>
+                            <button class="action-menu-item" onclick="closeActionMenu(); loadDailyRKM()">
+                                <span class="ami-icon">☁️</span>
+                                <div class="ami-text">
+                                    <span class="ami-title">Download RKM</span>
+                                    <span class="ami-sub" id="ami-account-hint">Tarik RKM dari DMS</span>
+                                </div>
+                            </button>
+                            <div class="action-menu-divider"></div>
+                            <button class="action-menu-item" onclick="closeActionMenu(); openEmailModal()">
+                                <span class="ami-icon">👤</span>
+                                <div class="ami-text">
+                                    <span class="ami-title">Ganti Akun</span>
+                                    <span class="ami-sub" id="ami-email-display">Belum di-setup</span>
+                                </div>
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div id="daily-status" class="header-status hidden"></div>
+            
+            <!-- Live Search Bar -->
+            <div class="search-bar-container" id="search-bar-container" style="display:none;">
+                <div class="search-bar-inner">
+                    <span class="search-icon">🔍</span>
+                    <input 
+                        type="text" 
+                        id="live-store-search" 
+                        class="search-input" 
+                        placeholder="Cari kode atau nama toko..."
+                        oninput="filterStores(this.value)"
+                        autocomplete="off"
+                        autocorrect="off"
+                        autocapitalize="off"
+                        spellcheck="false"
+                    >
+                    <button class="search-clear-btn" id="search-clear-btn" onclick="clearSearch()" title="Hapus Pencarian">✕</button>
+                </div>
+                <!-- Status summary dipindah ke sini -->
+                <div id="stores-count" class="stores-count-inline hidden"></div>
+            </div>
         </header>
 
         <!-- Scrollable Main Content -->
@@ -61,15 +124,45 @@
         <!-- Fixed Footer -->
         <footer class="app-footer">
             <div class="footer-left">
-                <span class="stores-count" id="stores-count">Ready: 0/0</span>
                 <div id="upload-progress" class="upload-status-footer hidden"></div>
             </div>
             <div class="footer-right">
                 <button class="btn-success btn-large" id="btn-upload">
-                    <span class="btn-icon">🚀</span> Upload to Server
+                    <span class="btn-icon">🚀</span> Upload Laporan
                 </button>
             </div>
         </footer>
+    </div>
+
+    <!-- ===== EMAIL SETUP MODAL ===== -->
+    <div id="email-modal" class="modal-overlay hidden">
+        <div class="modal-container" style="max-width: 380px;">
+            <div class="modal-header">
+                <div>
+                    <div class="modal-title">☁️ Akun Server DMS</div>
+                    <div class="modal-store-name" id="email-modal-subtitle">Masukkan email akun DMS kamu</div>
+                </div>
+                <button class="modal-close-btn" onclick="document.getElementById('email-modal').classList.add('hidden')">✕</button>
+            </div>
+            <div style="padding: 20px;">
+                <div class="form-group">
+                    <label for="input-user-email" id="email-modal-label" style="font-size:13px; color: var(--text-secondary); margin-bottom: 8px; display:block;">Email Akun DMS:</label>
+                    <input 
+                        type="email"
+                        id="input-user-email"
+                        class="form-input"
+                        placeholder="contoh: namauser@gmail.com"
+                        style="width: 100%;"
+                        onkeydown="if(event.key==='Enter') saveEmailAndDownload()"
+                    >
+                    <p style="font-size: 11px; color: var(--text-muted); margin-top: 6px;">🔒 Disimpan lokal, hanya dikirim ke server DMS Cimory.</p>
+                </div>
+                <div style="display:flex; gap:10px; margin-top: 16px;">
+                    <button class="btn-secondary" onclick="document.getElementById('email-modal').classList.add('hidden')" style="flex:1;">Batal</button>
+                    <button class="btn-action-server" onclick="saveEmailAndDownload()" style="flex:2;">☁️ Tarik Data RKM</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- ===== CHECKOUT CONFIRMATION MODAL ===== -->
@@ -125,6 +218,7 @@
     </div>
 
     <!-- Scripts -->
+    <script src="store_master.js"></script>
     <script src="photo_utils.js"></script>
     <script src="app.js"></script>
 </body>

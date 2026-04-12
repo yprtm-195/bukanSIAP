@@ -47,7 +47,52 @@ document.addEventListener('DOMContentLoaded', () => {
     if (fileInput) {
         fileInput.addEventListener('change', handleFileSelect);
     }
+    
+    // Update tooltip akun jika sudah tersimpan
+    updateAccountTooltip();
 });
+
+function updateAccountTooltip() {
+    const saved = localStorage.getItem('USER_EMAIL_DMS');
+    
+    // Update email display di dropdown
+    const emailDisplay = document.getElementById('ami-email-display');
+    if (emailDisplay) emailDisplay.textContent = saved || 'Belum di-setup';
+    
+    const accountHint = document.getElementById('ami-account-hint');
+    if (accountHint) accountHint.textContent = saved ? `Akun: ${saved.split('@')[0]}` : 'Tarik RKM dari DMS';
+}
+
+function toggleActionMenu() {
+    const dropdown = document.getElementById('action-menu-dropdown');
+    const btn = document.getElementById('btn-action-menu');
+    const isOpen = !dropdown.classList.contains('hidden');
+    
+    if (isOpen) {
+        closeActionMenu();
+    } else {
+        dropdown.classList.remove('hidden');
+        btn.classList.add('open');
+        // Setup click-outside listener
+        setTimeout(() => {
+            document.addEventListener('click', handleOutsideMenuClick, { once: true });
+        }, 10);
+    }
+}
+
+function closeActionMenu() {
+    const dropdown = document.getElementById('action-menu-dropdown');
+    const btn = document.getElementById('btn-action-menu');
+    if (dropdown) dropdown.classList.add('hidden');
+    if (btn) btn.classList.remove('open');
+}
+
+function handleOutsideMenuClick(e) {
+    const wrapper = document.getElementById('action-menu-wrapper');
+    if (wrapper && !wrapper.contains(e.target)) {
+        closeActionMenu();
+    }
+}
 
 // ============================================
 // UPLOAD SECTION TOGGLE
@@ -121,38 +166,26 @@ async function checkAndRestoreSession() {
         if (savedRKM) {
              statesReq.onsuccess = () => {
                  const savedStates = statesReq.result?.value;
-                 if (savedStates) {
-                     console.log('Restoring session...');
-                     const userConfirm = confirm('Found saved session from previous run. Restore it?');
-                     if (userConfirm) {
-                         rkmData = savedRKM;
-                         // We rely on processRKMData to re-init, but we want to KEEP the saved states
-                         // So allow processRKMData to run but then override with savedStates?
-                         // Better: processRKMData resets storeStates.
-                         // So we call processRKMData(rkmData) then restore states.
-                         
-                         processRKMData(rkmData, true); 
-                         storeStates = savedStates;
+                    if (savedStates) {
+                        console.log('Restoring session...');
+                        // No prompt, force restore to protect data
+                        rkmData = savedRKM;
+                        processRKMData(rkmData, true); 
+                        storeStates = savedStates;
 
-                         // Pastiin data stok manual juga tetep ada
-                         console.log('Session restored successfully');
-
-                         renderStoreCards();
-                         updateStoresCount(); // Update angka di footer (Siap Upload dll)                         
-                         // UI Feedback
-                         const statusDiv = document.getElementById('daily-status'); // or any status
-                         if (statusDiv) {
-                             statusDiv.textContent = 'Session Restored';
-                             statusDiv.className = 'header-status success';
-                             setTimeout(() => {
-                                 statusDiv.className = 'header-status hidden';
-                             }, 3000);
-                         }
-                     } else {
-                         // Clear session if user rejects? Use clearSession()
-                         clearSession();
-                     }
-                 }
+                        console.log('Session restored successfully');
+                        renderStoreCards();
+                        updateStoresCount(); 
+                        
+                        const statusDiv = document.getElementById('daily-status');
+                        if (statusDiv) {
+                            statusDiv.textContent = 'Session Auto-Restored ✔️';
+                            statusDiv.className = 'header-status success';
+                            setTimeout(() => {
+                                statusDiv.style.display = 'none';
+                            }, 3000);
+                        }
+                    }
              };
         }
     };
@@ -201,65 +234,249 @@ async function fetchExternalStock() {
 
 
 
-// Load Daily Data (GitHub Actions)
+const DMS_RKM_URL = "https://dms.cimory.com/api/sfaservice/downloadrkm";
+
+// Load Daily Data — Sekarang dari DMS Server langsung!
 async function loadDailyRKM() {
-    const statusDiv = document.getElementById('daily-status');
-    const btn = document.querySelector('.app-header .btn-primary');
+    // Cek sesi aktif dulu
+    if (Object.keys(storeStates).length > 0) {
+        const proceed = confirm("⛔ ADA SESI KERJA AKTIF!\n\nKalo lu nge-load RKM dari server sekarang, SEMUA KERJAAN hari ini bakal HANGUS dan mulai dari nol.\n\nLu yakin mau ngapus dan narik data baru?");
+        if (!proceed) return;
+    }
     
-    // UI Loading State
-    btn.disabled = true;
-    btn.innerHTML = '<span class="btn-icon">⏳</span> <span class="mobile-hidden">Loading...</span>';
+    // Cek email tersimpan
+    const savedEmail = localStorage.getItem('USER_EMAIL_DMS');
+    if (!savedEmail) {
+        // Belum ada email, tampilkan modal setup
+        openEmailModal();
+        return;
+    }
+    
+    // Email ada, langsung tarik!
+    await doDownloadRKM(savedEmail);
+}
+
+// Buka modal email, pre-fill kalau ada email tersimpan
+function openEmailModal() {
+    const modal = document.getElementById('email-modal');
+    const input = document.getElementById('input-user-email');
+    const savedEmail = localStorage.getItem('USER_EMAIL_DMS');
+    
+    if (input && savedEmail) {
+        input.value = savedEmail;
+        // Update label biar keliatan ini mode "ganti"
+        const label = document.getElementById('email-modal-label');
+        if (label) label.textContent = 'Email Akun DMS (tersimpan):';
+    }
+    
+    if (modal) modal.classList.remove('hidden');
+    if (input) setTimeout(() => { input.select(); }, 100);
+}
+
+// Dipanggil dari tombol modal setelah user isi email
+async function saveEmailAndDownload() {
+    const input = document.getElementById('input-user-email');
+    const email = input?.value?.trim();
+    
+    if (!email || !email.includes('@')) {
+        input.style.borderColor = 'var(--accent-danger)';
+        input.placeholder = 'Email tidak valid!';
+        return;
+    }
+    
+    localStorage.setItem('USER_EMAIL_DMS', email);
+    updateAccountTooltip();
+    document.getElementById('email-modal').classList.add('hidden');
+    await doDownloadRKM(email);
+}
+
+// Core download function
+async function doDownloadRKM(email) {
+    const statusDiv = document.getElementById('daily-status');
+    const btn = document.querySelector('.btn-action-server');
+    
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="btn-icon">⏳</span> <span class="mobile-hidden">Proses Sync RKM...</span>';
+    }
+    statusDiv.style.display = 'block';
     statusDiv.className = 'header-status loading';
-    statusDiv.textContent = 'Preparing data...';
+    statusDiv.textContent = `Proses Sync RKM untuk ${email}...`;
+    
+    clearSession();
     
     try {
-        // Fetch local file generated by GH Action
-        const response = await fetch('./real_data_sample.json?t=' + new Date().getTime()); // Prevent caching
+        const response = await fetch(DMS_RKM_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ Key: 'IMEI', Value: email })
+        });
         
-        if (!response.ok) {
-            if (response.status === 404) {
-                throw new Error('Daily data not found. Script may not have run yet.');
-            }
-            throw new Error(`Error loading file: ${response.status}`);
-        }
+        if (!response.ok) throw new Error(`Server error: ${response.status}`);
         
         const data = await response.json();
         
-        if (!data || (!data.ListRKMDetail && !data.ListBarang)) {
-            throw new Error('Invalid data format in daily file');
+        // Cek status download dari DMS
+        if (data.StatusDownload === 'NO') {
+            throw new Error(data.ErrorMessage || 'Gak ada data RKM hari ini. Mungkin belum dibuka oleh Admin atau sudah closing.');
         }
+        
+        if (!data.StatusDownload || !data.ListRKMDetail) {
+            throw new Error(`Format tidak dikenali dari server DMS. Keys: ${Object.keys(data).join(', ')}`);
+        }
+        
+        // Data valid — langsung pakai (flat structure, no wrapper)
+        const rkmPayload = data;
         
         statusDiv.className = 'header-status success';
-        statusDiv.textContent = '✓ Data loaded successfully!';
+        statusDiv.textContent = `✓ Data RKM berhasil ditarik!`;
         
-        // Process data
-        processRKMData(data);
+        // Auto sync master data Google
+        await silentSyncMasterData();
+        processRKMData(rkmPayload);
+        
+        setTimeout(() => {
+            if (statusDiv) statusDiv.style.display = 'none';
+            const loaderDiv = document.getElementById('global-loader');
+            if (loaderDiv) loaderDiv.classList.add('hidden');
+        }, 600);
         
     } catch (error) {
-        console.error('Daily load failed:', error);
-        statusDiv.className = 'header-status error';
-        statusDiv.textContent = `❌ ${error.message}`;
+        console.error('RKM download failed:', error);
         
-        if (error.message.includes('not found')) {
-            alert('Daily Data Not Found!\n\nThe automated script runs at 00:01 WIB.\nIf this is the first time, the file might not exist yet.\nTry "Download from Server" instead.');
+        // Tangani CORS error secara khusus
+        const isCORS = error.message === 'Failed to fetch' || error.name === 'TypeError';
+        
+        if (isCORS) {
+            statusDiv.className = 'header-status error';
+            statusDiv.textContent = '❌ CORS Error — Server DMS belum izinkan akses dari browser';
+            
+            setTimeout(() => {
+                alert(
+                    '🚨 CORS BLOCKED\n\n' +
+                    'Server dms.cimory.com memblokir akses langsung dari browser.\n\n' +
+                    'Solusi:\n' +
+                    '1. Minta tim IT aktifkan CORS header di server DMS, atau\n' +
+                    '2. Kita buat proxy via Google Apps Script (ga perlu akses server)\n\n' +
+                    'Untuk sementara gunakan tombol 📂 Pilih File dengan file JSON yang didapat manual.'
+                );
+            }, 500);
+        } else {
+            statusDiv.className = 'header-status error';
+            statusDiv.textContent = `❌ ${error.message}`;
         }
     } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<span class="btn-icon">🔄</span> <span class="mobile-hidden">Load</span>';
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<span class="btn-icon">☁️</span> <span class="mobile-hidden">Server Sinkron</span>';
+        }
+    }
+}
+
+// ============================================
+// MASTER DATA SYNC (GOOGLE APPS SCRIPT API)
+// ============================================
+const GAS_API_URL = "https://script.google.com/macros/s/AKfycbwCGmVNAIXN6gbRAMh4REPmtojiSErXHezAAifiy43Umm1SP2U6AahJjniZLQX-jEpqyw/exec";
+
+async function silentSyncMasterData() {
+    const loaderDiv = document.getElementById('global-loader');
+    const loaderTitle = document.getElementById('loader-title');
+    const loaderText = document.getElementById('loader-text');
+    const progressBar = document.getElementById('loader-progress-bar');
+    const progressText = document.getElementById('loader-progress-text');
+    
+    // Show Full Screen Loader
+    if (loaderDiv) loaderDiv.classList.remove('hidden');
+    if (loaderTitle) loaderTitle.textContent = "Proses Sync RKM...";
+    if (loaderText) loaderText.textContent = "Proses Sync master kordinat & produk terupdate dari Lokal Server.";
+    
+    if (progressBar) progressBar.style.width = '0%';
+    if (progressText) progressText.textContent = '0%';
+    
+    let progressNum = 0;
+    const fakeProgressInterval = setInterval(() => {
+        if (progressNum < 90) {
+            progressNum += Math.floor(Math.random() * 15) + 5;
+            if (progressNum > 90) progressNum = 90;
+            if (progressBar) progressBar.style.width = progressNum + '%';
+            if (progressText) progressText.textContent = progressNum + '%';
+        }
+    }, 400);
+    
+    // Fallback UI Banner
+    const statusDiv = document.getElementById('daily-status');
+    if (statusDiv) {
+        statusDiv.style.display = 'block';
+        statusDiv.className = 'header-status loading';
+        statusDiv.textContent = 'Menarik Master Data Cloud...';
+    }
+    
+    try {
+        const res = await fetch(GAS_API_URL, { redirect: "follow" });
+        if(!res.ok) throw new Error("HTTP " + res.status);
+        
+        const json = await res.json();
+        clearInterval(fakeProgressInterval);
+        
+        if(json.status === 'success') {
+            if (progressBar) progressBar.style.width = '100%';
+            if (progressText) progressText.textContent = '100%';
+            
+            localStorage.setItem('STORE_MASTER_LIVE', JSON.stringify(json.data));
+            if (statusDiv) {
+                statusDiv.className = 'header-status success';
+                statusDiv.textContent = `✓ Auto-Patch Ready (${json.totalToko} Toko)`;
+            }
+            if (loaderTitle) loaderTitle.textContent = "Data berhasil sync!";
+            if (loaderText) loaderText.textContent = "Lagi rombak file RKM (Tunggu bentar)...";
+        } else {
+            throw new Error(json.message);
+        }
+    } catch(err) {
+        clearInterval(fakeProgressInterval);
+        if (progressBar) progressBar.style.width = '100%';
+        if (progressText) progressText.textContent = 'Mode Offline';
+        
+        console.warn("Silent sync failed, falling back to local cache:", err);
+        if (statusDiv) {
+            statusDiv.className = 'header-status error';
+            statusDiv.textContent = `⚠️ Mode Offline: Gagal Narik Master Terkini`;
+        }
     }
 }
 
 function handleFileSelect(e) {
     const file = e.target.files[0];
-    if (file) processFile(file);
+    if (file) {
+        if (Object.keys(storeStates).length > 0) {
+            const proceed = confirm("⛔ ADA SESI KERJA AKTIF!\n\nKalo lu nge-load JSON sekarang, SEMUA KERJAAN hari ini bakal HANGUS bro.\n\nLu yakin mau nimpa pakai file ini?");
+            if (!proceed) {
+                e.target.value = ''; // Reset input to allow re-selecting same file later
+                return;
+            }
+        }
+        clearSession();
+        processFile(file);
+    }
 }
 
 function processFile(file) {
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
         try {
             const data = JSON.parse(e.target.result);
+            await silentSyncMasterData();
             processRKMData(data);
+            
+            setTimeout(() => {
+                const statusDiv = document.getElementById('daily-status');
+                if(statusDiv) statusDiv.style.display = 'none';
+                
+                // Hide Full Screen Loader after render
+                const loaderDiv = document.getElementById('global-loader');
+                if(loaderDiv) loaderDiv.classList.add('hidden');
+            }, 600);
+            
         } catch (err) {
             showUploadStatus('error', 'Error parsing JSON: ' + err.message);
         }
@@ -283,6 +500,60 @@ function processRKMData(data, isRestore = false) {
         showUploadStatus('error', 'Invalid format: ListRKMDetail not found');
         return;
     }
+    
+    // --- AUTO-PATCH LOGIC VIA LOCALSTORAGE (API SYNC) ---
+    const localMaster = localStorage.getItem('STORE_MASTER_LIVE');
+    let STORE_MASTER = null;
+    try { STORE_MASTER = JSON.parse(localMaster); } catch(e) {}
+    
+    if (!isRestore && STORE_MASTER && typeof STORE_MASTER === 'object' && Object.keys(STORE_MASTER).length > 0) {
+        console.log("🛠️ STORE_MASTER terdeteksi dari Cache API! Mengoperasi file RKM mentah...");
+        
+        const patchedStock = [];
+        let replacedCoords = 0;
+        
+        data.ListRKMDetail.forEach(store => {
+            const storeCode = store.RKMD.KodeCustomer.trim();
+            const master = STORE_MASTER[storeCode];
+            
+            if (master) {
+                // A. Patch Kordinat GPS
+                if (master.lat !== undefined && master.lat !== 0) {
+                    store.RKMD.Latitude = master.lat;
+                    store.RKMD.Longitude = master.lng;
+                    replacedCoords++;
+                }
+                
+                // B. Patch ListRKMStok
+                if (Array.isArray(master.products)) {
+                    master.products.forEach(prodCode => {
+                        const pMaster = data.ListBarang ? data.ListBarang.find(p => (p.KodeBarang||p.KodeBrg||'').trim() === prodCode.trim()) : null;
+                        const prodName = pMaster ? (pMaster.NamaBrg || pMaster.NamaBarang) : prodCode;
+                        
+                        patchedStock.push({
+                            KodeCustomer: storeCode,
+                            KodeBarang: prodCode,
+                            NamaBrg: prodName,
+                            JumKarton: 0,
+                            JumSatuan: 0,
+                            JumPcsE: 0,
+                            TanggalRKM: store.RKMD.TanggalRKM || new Date().toISOString().split('T')[0],
+                            KodeMerchandiser: store.RKMD.KodeMerchandiser || ""
+                        });
+                    });
+                }
+            } else {
+                if(data.ListRKMStok) {
+                    const originalStock = data.ListRKMStok.filter(item => item.KodeCustomer.trim() === storeCode);
+                    patchedStock.push(...originalStock);
+                }
+            }
+        });
+        
+        data.ListRKMStok = patchedStock;
+        console.log(`🛠️ Operasi RKM via API Cache Selesai! Mengupdate koordinat pada ${replacedCoords} toko.`);
+    }
+    // ------------------------------------------
     
     rkmData = data;
     
@@ -339,13 +610,59 @@ function processRKMData(data, isRestore = false) {
     // Render store cards
     renderStoreCards();
     
+    // Tampilkan search bar
+    const searchBar = document.getElementById('search-bar-container');
+    if (searchBar) searchBar.style.display = 'block';
+    
     // Show success
     showUploadStatus('success', `✓ ${isRestore ? 'Session Restored' : 'Loaded'} (${data.ListRKMDetail.length} stores)`);
     storesContainer.classList.remove('hidden');
-    // outputSection.classList.remove('hidden'); // Always visible in footer
     updateStoresCount();
     
     // Auto-collapse upload section removed
+}
+
+// ============================================
+// LIVE SEARCH
+// ============================================
+function filterStores(query) {
+    const q = query.trim().toLowerCase();
+    const cards = document.querySelectorAll('#stores-container .store-card');
+    const clearBtn = document.getElementById('search-clear-btn');
+    
+    if (clearBtn) clearBtn.style.display = q ? 'flex' : 'none';
+    
+    let visibleCount = 0;
+    cards.forEach(card => {
+        const name = (card.querySelector('.store-name')?.textContent || '').toLowerCase();
+        const code = (card.querySelector('.store-code')?.textContent || '').toLowerCase();
+        const match = !q || name.includes(q) || code.includes(q);
+        card.style.display = match ? '' : 'none';
+        if (match) visibleCount++;
+    });
+    
+    // Sembunyiin group header yang isinya kosong semua
+    document.querySelectorAll('.stores-group-header').forEach(header => {
+        let next = header.nextElementSibling;
+        let hasVisible = false;
+        while (next && !next.classList.contains('stores-group-header')) {
+            if (next.classList.contains('store-card') && next.style.display !== 'none') {
+                hasVisible = true;
+                break;
+            }
+            next = next.nextElementSibling;
+        }
+        header.style.display = hasVisible ? '' : 'none';
+    });
+}
+
+function clearSearch() {
+    const input = document.getElementById('live-store-search');
+    if (input) {
+        input.value = '';
+        filterStores('');
+        input.focus();
+    }
 }
 
 function loadAllStockData() {
@@ -461,7 +778,7 @@ function renderStoreCards() {
     if (pendingStores.length > 0) {
         const header = document.createElement('div');
         header.className = 'stores-group-header';
-        header.innerHTML = `<span>⏳ BELUM DIKERJAKAN (${pendingStores.length})</span>`;
+        header.innerHTML = `<span>⏳ BELUM DIKUNJUNGI (${pendingStores.length})</span>`;
         storesContainer.appendChild(header);
 
         pendingStores.forEach(storeCode => {
@@ -487,7 +804,7 @@ function renderStoreCards() {
     if (syncedStores.length > 0) {
         const header = document.createElement('div');
         header.className = 'stores-group-header completed-header';
-        header.innerHTML = `<span>✅ SUDAH TERUPLOAD (${syncedStores.length})</span>`;
+        header.innerHTML = `<span>✅ SUDAH DIUPLOAD (${syncedStores.length})</span>`;
         storesContainer.appendChild(header);
 
         syncedStores.forEach(storeCode => {
@@ -661,24 +978,8 @@ function renderGPSSection(storeCode, state) {
                 <span class="section-chevron ${open ? '' : 'collapsed'}">▾</span>
             </div>
             <div class="section-accordion-body ${open ? '' : 'collapsed'}">
-                <div class="gps-combined-row">
-                    <div class="gps-input-group">
-                        <input 
-                            type="text"
-                            class="gps-combined-input"
-                            data-gps-combined="${storeCode}"
-                            value="${state.gpsLat}, ${state.gpsLng}" 
-                            onchange="updateGPSCombined('${storeCode}', this.value)"
-                            placeholder="lat, lon — contoh: -6.123456, 106.123456"
-                            ${disabledAttr}>
-                        <button 
-                            class="gps-inline-btn" 
-                            onclick="setManualGPSWithJitter('${storeCode}')" 
-                            title="Terapkan koordinat ini + sedikit geser acak"
-                            ${disabledAttr}>
-                            🎯 Set+Jitter
-                        </button>
-                    </div>
+                <div class="gps-display-row" style="margin-bottom: 12px; font-size: 13px; color: var(--text-secondary);">
+                    <span>Titik Koordinat: <strong id="gps-text-${storeCode}" style="color: var(--text-primary); font-family: monospace;">${state.gpsLat}, ${state.gpsLng}</strong></span>
                 </div>
                 <div class="gps-controls">
                     <button class="btn-secondary" onclick="useDeviceGPS('${storeCode}')" ${disabledAttr}>
@@ -853,11 +1154,15 @@ function renderTimelineSection(storeCode, state) {
         return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
     };
 
-    const renderThumbnails = (arr) => arr.length === 0 ? '' : `
-        <div class="photo-thumbnail-grid">
-            ${arr.map(p => `<img src="${p.thumbnail}" class="photo-thumbnail" alt="foto" />`).join('')}
-        </div>`;
-
+    // Helper for thumbnails
+    const renderThumbnails = (arr, category) => {
+        return arr.map((p, idx) => `
+            <div class="photo-thumbnail-wrapper">
+                <img src="${p.thumbnail}" class="photo-thumbnail" alt="foto" onclick="openImageFull('${storeCode}', '${category}', ${idx})" />
+                ${isReadOnly ? '' : `<button class="photo-delete-btn" onclick="removePhoto('${storeCode}', '${category}', ${idx})" title="Hapus Foto">×</button>`}
+            </div>
+        `).join('');
+    };
 
     const open = (state.openSection === 'timeline');
 
@@ -888,38 +1193,54 @@ function renderTimelineSection(storeCode, state) {
                     </button>
                 </div>
 
-                <!-- PHOTO UPLOAD (di antara IN dan OUT) -->
+                <!-- PHOTO UPLOAD SECTION (Unified Grid) -->
                 <div class="timeline-photo-block ${isPhotoComplete ? 'photo-complete' : ''}">
                     <div class="timeline-photo-title">
-                        📸 Foto ${isPhotoComplete ? '✅' : '<span class="section-warning-icon">⚠</span>'}
+                        📸 Foto Dokumentasi ${isPhotoComplete ? '✅' : '<span class="section-warning-icon">⚠</span>'}
                     </div>
                     <div class="timeline-photo-grid">
+                        <!-- Check-In Category -->
                         <div class="timeline-photo-item">
                             <label class="timeline-photo-label">Check-In</label>
-                            <label class="custom-file-btn" ${isReadOnly ? 'style="opacity:.4;pointer-events:none;"' : ''}>
-                                <span style="font-size: 1.5rem;">📷</span>
-                                <span>${photos.checkin.length > 0 ? photos.checkin.length + ' foto' : 'Pilih'}</span>
-                                <input type="file" accept="image/*" onchange="handlePhotoUpload('${storeCode}', 'checkin', this.files, 1)" ${photoDisabled} hidden>
-                            </label>
-                            ${renderThumbnails(photos.checkin)}
+                            <div class="photo-gallery-container">
+                                ${photos.checkin.length === 0 ? `
+                                    <label class="custom-file-btn" ${isReadOnly ? 'style="opacity:.4;pointer-events:none;"' : ''}>
+                                        <span>📷</span>
+                                        <span>Pilih</span>
+                                        <input type="file" accept="image/*" onchange="handlePhotoUpload('${storeCode}', 'checkin', this.files, 1)" ${photoDisabled} hidden>
+                                    </label>
+                                ` : renderThumbnails(photos.checkin, 'checkin')}
+                            </div>
                         </div>
+
+                        <!-- Before Category -->
                         <div class="timeline-photo-item">
                             <label class="timeline-photo-label">Before</label>
-                            <label class="custom-file-btn" ${isReadOnly ? 'style="opacity:.4;pointer-events:none;"' : ''}>
-                                <span style="font-size: 1.5rem;">📷</span>
-                                <span>${photos.before.length > 0 ? photos.before.length + ' foto' : 'Pilih'}</span>
-                                <input type="file" accept="image/*" multiple onchange="handlePhotoUpload('${storeCode}', 'before', this.files, 20)" ${photoDisabled} hidden>
-                            </label>
-                            ${renderThumbnails(photos.before)}
+                            <div class="photo-gallery-container">
+                                ${renderThumbnails(photos.before, 'before')}
+                                ${(!isReadOnly && photos.before.length < 20) ? `
+                                    <label class="custom-file-btn">
+                                        <span>📷</span>
+                                        <span>+ Foto</span>
+                                        <input type="file" accept="image/*" multiple onchange="handlePhotoUpload('${storeCode}', 'before', this.files, 20)" ${photoDisabled} hidden>
+                                    </label>
+                                ` : ''}
+                            </div>
                         </div>
+
+                        <!-- After Category -->
                         <div class="timeline-photo-item">
                             <label class="timeline-photo-label">After</label>
-                            <label class="custom-file-btn" ${isReadOnly ? 'style="opacity:.4;pointer-events:none;"' : ''}>
-                                <span style="font-size: 1.5rem;">📷</span>
-                                <span>${photos.after.length > 0 ? photos.after.length + ' foto' : 'Pilih'}</span>
-                                <input type="file" accept="image/*" multiple onchange="handlePhotoUpload('${storeCode}', 'after', this.files, 20)" ${photoDisabled} hidden>
-                            </label>
-                            ${renderThumbnails(photos.after)}
+                            <div class="photo-gallery-container">
+                                ${renderThumbnails(photos.after, 'after')}
+                                ${(!isReadOnly && photos.after.length < 20) ? `
+                                    <label class="custom-file-btn">
+                                        <span>📷</span>
+                                        <span>+ Foto</span>
+                                        <input type="file" accept="image/*" multiple onchange="handlePhotoUpload('${storeCode}', 'after', this.files, 20)" ${photoDisabled} hidden>
+                                    </label>
+                                ` : ''}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1026,6 +1347,38 @@ function autoAdvanceSection(storeCode) {
     }
 }
 
+// Hapus foto dari state
+window.removePhoto = function(storeCode, category, index) {
+    const state = storeStates[storeCode];
+    if (!state || state.isSynced) return;
+    
+    if (confirm('Hapus foto ini?')) {
+        state.photos[category].splice(index, 1);
+        saveSession();
+        refreshStoreCard(storeCode);
+    }
+};
+
+// Open Full Image (Safe version)
+window.openImageFull = function(storeCode, category, index) {
+    const state = storeStates[storeCode];
+    if (!state || !state.photos[category][index]) return;
+    
+    const base64 = state.photos[category][index].base64;
+    const newTab = window.open();
+    if (newTab) {
+        newTab.document.title = `Preview Foto - ${category}`;
+        newTab.document.body.style.margin = "0";
+        newTab.document.body.style.background = "#000";
+        newTab.document.body.style.display = "flex";
+        newTab.document.body.style.alignItems = "center";
+        newTab.document.body.style.justifyContent = "center";
+        newTab.document.body.innerHTML = `<img src="${base64}" style="max-width:100%; max-height:100vh; object-fit: contain;">`;
+    } else {
+        alert("Popup terblokir! Izinkan popup untuk melihat foto.");
+    }
+};
+
 
 window.toggleStoreCard = function(storeCode) {
     const state = storeStates[storeCode];
@@ -1062,31 +1415,16 @@ function updateGPS(storeCode, coord, value) {
     if (coord === 'lat') state.gpsLat = parseFloat(value);
     if (coord === 'lng') state.gpsLng = parseFloat(value);
     
-    // Sync Map Marker
+// Sync Map Marker
     if (state.userMarker) {
         state.userMarker.setLatLng([state.gpsLat, state.gpsLng]);
     }
     
+    // Sync text display
+    const textDisplay = document.getElementById(`gps-text-${storeCode}`);
+    if (textDisplay) textDisplay.textContent = `${state.gpsLat}, ${state.gpsLng}`;
+    
     saveSession();
-}
-
-// New: Update GPS from combined "lat, lon" input
-function updateGPSCombined(storeCode, value) {
-    const parts = value.split(',');
-    if (parts.length === 2) {
-        const lat = parseFloat(parts[0].trim());
-        const lng = parseFloat(parts[1].trim());
-        if (!isNaN(lat) && !isNaN(lng)) {
-            updateGPS(storeCode, 'lat', lat);
-            updateGPS(storeCode, 'lng', lng);
-            // Sync map marker + pan
-            const state = storeStates[storeCode];
-            if (state.userMarker) {
-                state.userMarker.setLatLng([lat, lng]);
-                if (state.mapInstance) state.mapInstance.panTo([lat, lng]);
-            }
-        }
-    }
 }
 
 // New: Use real device GPS + apply jitter
@@ -1122,33 +1460,6 @@ function useDeviceGPS(storeCode) {
     );
 }
 
-// New: Manual input + jitter — baca nilai dari input field, apply jitter, sync
-function setManualGPSWithJitter(storeCode) {
-    const card = document.querySelector(`[data-store-code="${storeCode}"]`);
-    const input = card?.querySelector(`[data-gps-combined="${storeCode}"]`);
-    if (!input) return;
-    
-    const parts = input.value.split(',');
-    if (parts.length !== 2) {
-        alert('Format koordinat salah bro! Gunakan: lat, lon\nContoh: -6.123456, 106.123456');
-        return;
-    }
-    
-    const lat = parseFloat(parts[0].trim());
-    const lng = parseFloat(parts[1].trim());
-    if (isNaN(lat) || isNaN(lng)) {
-        alert('Angka koordinat ga valid bro, cek lagi!');
-        return;
-    }
-    
-    const jittered = addGPSJitter(lat, lng);
-    updateGPS(storeCode, 'lat', jittered.lat);
-    updateGPS(storeCode, 'lng', jittered.lng);
-    syncGPSUI(storeCode);
-    autoAdvanceSection(storeCode);
-    console.log(`[GPS Manual+Jitter] ${storeCode}: input=(${lat}, ${lng}) → jittered=(${jittered.lat}, ${jittered.lng})`);
-}
-
 function addJitter(storeCode) {
     const state = storeStates[storeCode];
     const jittered = addGPSJitter(state.gpsLat, state.gpsLng);
@@ -1158,14 +1469,13 @@ function addJitter(storeCode) {
     autoAdvanceSection(storeCode);
 }
 
-// Helper: Sync combined GPS input field + map marker
+// Helper: Sync text display + map marker
 function syncGPSUI(storeCode) {
     const state = storeStates[storeCode];
-    const card = document.querySelector(`[data-store-code="${storeCode}"]`);
-    if (card) {
-        const combinedInput = card.querySelector(`[data-gps-combined="${storeCode}"]`);
-        if (combinedInput) combinedInput.value = `${state.gpsLat}, ${state.gpsLng}`;
-    }
+    
+    // Sync text display
+    const textDisplay = document.getElementById(`gps-text-${storeCode}`);
+    if (textDisplay) textDisplay.textContent = `${state.gpsLat}, ${state.gpsLng}`;
     
     // Sync Map Marker
     if (state.userMarker) {
@@ -1380,8 +1690,21 @@ function handleModalOverlayClick(event) {
 // PHOTO UPLOAD
 // ============================================
 async function handlePhotoUpload(storeCode, category, files, maxFiles) {
-    const filesArray = Array.from(files).slice(0, maxFiles);
     const state = storeStates[storeCode];
+    if (!state || state.isSynced) return;
+
+    const currentCount = state.photos[category].length;
+    const remainingSlots = maxFiles - currentCount;
+
+    if (remainingSlots <= 0) {
+        alert(`Slot foto ${category} sudah penuh (Max: ${maxFiles}). Hapus foto lama dulu bro.`);
+        return;
+    }
+
+    const filesArray = Array.from(files).slice(0, remainingSlots);
+    
+    // Tampilkan loading minor pada tombol (opsional UX)
+    console.log(`Processing ${filesArray.length} photos for ${category}...`);
     
     const processedPhotos = [];
     for (const file of filesArray) {
@@ -1399,7 +1722,9 @@ async function handlePhotoUpload(storeCode, category, files, maxFiles) {
         }
     }
     
-    state.photos[category] = processedPhotos;
+    // SEKARANG: Append statt Replace!
+    state.photos[category].push(...processedPhotos);
+    
     refreshStoreCard(storeCode);
     saveSession();
 }
@@ -1409,7 +1734,34 @@ async function handlePhotoUpload(storeCode, category, files, maxFiles) {
 // PAYLOAD GENERATION
 // ============================================
 function setupPayloadGeneration() {
-    btnUpload.addEventListener('click', handleDualApiUpload);
+    btnUpload.addEventListener('click', handleUploadWithValidation);
+}
+
+// ============================================
+// VALIDATION INTERCEPTOR (Upload Guard)
+// ============================================
+async function handleUploadWithValidation() {
+    if (!storeStates || Object.keys(storeStates).length === 0) return;
+    
+    const allCodes = Object.keys(storeStates);
+    const pendingStores = allCodes.filter(code => storeStates[code].status !== 'checked-out');
+    
+    if (pendingStores.length > 0) {
+        const pendingNames = pendingStores.map(code => {
+            const name = storeStates[code].storeData?.RKMD?.NamaToko || code;
+            return `  • ${name} (${code})`;
+        }).join('\n');
+        
+        const proceed = confirm(
+            `⚠️ ADA ${pendingStores.length} TOKO YANG BELUM SELESAI!\n\n` +
+            `Toko belum di-check-out:\n${pendingNames}\n\n` +
+            `Yakin mau setor data sekarang? Toko yang belum selesai tidak akan ikut terupload.`
+        );
+        if (!proceed) return;
+    }
+    
+    // All good, lanjut ke upload handler asli
+    handleDualApiUpload();
 }
 
 
@@ -1527,78 +1879,73 @@ async function handleDualApiUpload() {
     );
     
     if (activeStores.length === 0) {
-        alert('No new completed stores to upload.\n(Already synced stores are skipped)');
+        alert('Tidak ada toko baru yang siap diupload.\n(Toko yang sudah sukses terupload akan dilewati)');
         return;
     }
 
-    if (!confirm(`Ready to upload ${activeStores.length} NEW stores to server?`)) {
+    if (!confirm(`Siap mengirim ${activeStores.length} data kunjungan TOKO BARU ke server?`)) {
         return;
     }
 
-    // Reset UI
-    uploadProgress.innerHTML = `
-        <div class="upload-item" id="global-prog">
-            <div class="upload-label">
-                <span id="global-prog-label">🚀 Menyiapkan upload...</span>
-                <span id="global-prog-percentage">0%</span>
-            </div>
-            <div class="upload-bar-container">
-                <div class="upload-bar" id="global-prog-bar" style="width: 0%"></div>
-            </div>
-            <div class="upload-status-text" id="global-prog-text">Pending...</div>
-        </div>
-    `;
-    uploadProgress.classList.add('visible');
-    uploadProgress.classList.remove('hidden');
+    // --- Tampilkan Global Loader ---
+    const loader = document.getElementById('global-loader');
+    const loaderTitle = document.getElementById('loader-title');
+    const loaderText = document.getElementById('loader-text');
+    const loaderBar = document.getElementById('loader-progress-bar');
+    const loaderPct = document.getElementById('loader-progress-text');
+    
+    if (loader) {
+        loaderTitle.textContent = 'Mengirim Data...';
+        loaderText.textContent = `Menyiapkan ${activeStores.length} data kunjungan...`;
+        loaderBar.style.width = '0%';
+        loaderPct.textContent = '0%';
+        loader.classList.remove('hidden');
+    }
+
     btnUpload.disabled = true;
     btnUpload.innerHTML = '<span class="btn-icon">⏳</span> Uploading...';
-
-    const progBar = document.getElementById('global-prog-bar');
-    const progLabel = document.getElementById('global-prog-label');
-    const progPct = document.getElementById('global-prog-percentage');
-    const progText = document.getElementById('global-prog-text');
 
     const totalStores = activeStores.length;
     let successStores = 0;
     let hasError = false;
     let lastError = '';
 
-    const updateGlobalStatus = (pct, mainTitle, subDesc) => {
-        progBar.style.width = `${pct}%`;
-        if (progPct) progPct.textContent = `${Math.round(pct)}%`;
-        if (mainTitle) progLabel.textContent = mainTitle;
-        if (subDesc) progText.textContent = subDesc;
+    const updateUIProgress = (pct, mainTitle, subDesc) => {
+        if (loaderBar) loaderBar.style.width = `${pct}%`;
+        if (loaderPct) loaderPct.textContent = `${Math.round(pct)}%`;
+        if (mainTitle) loaderTitle.textContent = mainTitle;
+        if (subDesc) loaderText.textContent = subDesc;
     };
 
     // Process each store
     for (let i = 0; i < totalStores; i++) {
         const storeCode = activeStores[i];
-        const storeName = storeStates[storeCode].storeData.NamaCustomer || storeStates[storeCode].storeData.RKMD.NamaCustomer || storeCode;
+        const state = storeStates[storeCode];
+        const storeName = state.storeData?.NamaCustomer || state.storeData?.RKMD?.NamaCustomer || storeCode;
         
         try {
             const basePct = (i / totalStores) * 100;
-            const stepPct = 100 / totalStores; // How much % one store takes
+            const stepPct = 100 / totalStores; 
             
-            updateGlobalStatus(basePct + (stepPct * 0.2), `📤 [${i+1}/${totalStores}] ${storeName}`, 'Mengirim Data kunjungan...');
+            updateUIProgress(basePct + (stepPct * 0.2), `📤 [${i+1}/${totalStores}] ${storeName}`, 'Mengirim Data Kunjungan...');
             await uploadStoreData(storeCode);
             
-            const photos = buildPhotoPayload(storeCode, storeStates[storeCode]);
+            const photos = buildPhotoPayload(storeCode, state);
             if (photos.length > 0) {
                 let successPhotoCount = 0;
-                
                 const uploadPromises = photos.map((p, idx) => 
                     uploadPhoto(p).then(() => {
                         successPhotoCount++;
                         const currentStorePhotoPct = (successPhotoCount / photos.length) * (stepPct * 0.8);
-                        updateGlobalStatus(basePct + (stepPct * 0.2) + currentStorePhotoPct, null, `Mengirim Foto (${successPhotoCount}/${photos.length})...`);
+                        updateUIProgress(basePct + (stepPct * 0.2) + currentStorePhotoPct, null, `Mengirim Foto (${successPhotoCount}/${photos.length})...`);
                     })
                 );
                 await Promise.all(uploadPromises);
             }
             
-            storeStates[storeCode].isSynced = true;
-            storeStates[storeCode].status = 'checked-out';
-            saveSession(); // CRITICAl: Simpan info sukses upload ke database lokal agar tidak hilang saat direfresh!
+            state.isSynced = true;
+            state.status = 'checked-out';
+            saveSession(); 
             successStores++;
         } catch (error) {
             console.error(`Upload failed for ${storeCode}:`, error);
@@ -1607,16 +1954,15 @@ async function handleDualApiUpload() {
         }
     }
     
-    // Hide UI Progress after complete
-    uploadProgress.classList.add('hidden');
-    renderStoreCards();
+    // Selesai, sembunyikan loader
+    if (loader) loader.classList.add('hidden');
     
-    // Show Modal
+    renderStoreCards();
     showUploadModalResult(successStores, totalStores, hasError, lastError);
 
     btnUpload.disabled = false;
     btnUpload.innerHTML = '<span class="btn-icon">🚀</span> Upload to Server';
-    updateStoresCount(); // refresh disabled/enabled state
+    updateStoresCount(); 
 }
 
 function showUploadModalResult(successCount, totalCount, hasError, errorMessage) {
@@ -1751,16 +2097,16 @@ function updateStoresCount() {
     const total    = states.length;
     const uploaded = states.filter(s => s.isSynced).length;
     const ready    = states.filter(s => s.status === 'checked-out' && !s.isSynced).length;
-    const pending  = total - uploaded - ready; // belum check-out
+    const pending  = total - uploaded - ready;
 
-    // Update teks footer
     const el = document.getElementById('stores-count');
     if (el) {
+        el.classList.remove('hidden');
         el.innerHTML = [
             `<span class="count-item">📋 <b>${total}</b> toko</span>`,
-            `<span class="count-item ready">✅ <b>${ready}</b> siap upload</span>`,
-            `<span class="count-item uploaded">☁️ <b>${uploaded}</b> terupload</span>`,
-            `<span class="count-item pending">⏳ <b>${pending}</b> belum</span>`,
+            ready > 0    ? `<span class="count-item ready">✅ <b>${ready}</b> siap upload</span>` : '',
+            uploaded > 0 ? `<span class="count-item uploaded">☁️ <b>${uploaded}</b> terupload</span>` : '',
+            pending > 0  ? `<span class="count-item pending">⏳ <b>${pending}</b> belum</span>` : '',
         ].join('');
     }
 
