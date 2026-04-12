@@ -368,10 +368,8 @@ async function doDownloadRKM(email) {
     }
 }
 
-// ============================================
-// MASTER DATA SYNC (GOOGLE APPS SCRIPT API)
-// ============================================
-const GAS_API_URL = "https://script.google.com/macros/s/AKfycbwCGmVNAIXN6gbRAMh4REPmtojiSErXHezAAifiy43Umm1SP2U6AahJjniZLQX-jEpqyw/exec";
+// MASTER DATA SYNC (GOOGLE APPS SCRIPT API - VIA PROXY)
+const GAS_API_URL = "https://cimory-proxy.yohandi-pratama.workers.dev/gas/macros/s/AKfycbwCGmVNAIXN6gbRAMh4REPmtojiSErXHezAAifiy43Umm1SP2U6AahJjniZLQX-jEpqyw/exec";
 
 async function silentSyncMasterData() {
     const loaderDiv = document.getElementById('global-loader');

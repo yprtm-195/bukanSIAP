@@ -1,46 +1,62 @@
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    
-    // Ganti base URL proxy kita jadi URL server Cimory
-    url.hostname = 'dms.cimory.com';
-    url.protocol = 'https:'; // Pastiin selalu pake HTTPS
-    url.port = '';           // Bersihin port kalo ada sisa dari localhost
+    let targetHostname = 'dms.cimory.com';
+    let targetUrl = '';
 
-    // Headers buat ngakalin CORS biar browser HP lu ga protes
+    if (url.pathname.startsWith('/gas/')) {
+      targetHostname = 'script.google.com';
+      const newPath = url.pathname.replace('/gas/', '/');
+      targetUrl = `https://${targetHostname}${newPath}${url.search}`;
+    } else {
+      targetUrl = `https://${targetHostname}${url.pathname}${url.search}`;
+    }
+
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
     };
 
-    // Kalau browser ngecek izin dulu (Preflight / OPTIONS), langsung kita ACC
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders });
     }
 
-    // Copy headers lama, tapi ubah Host-nya biar server Cimory ga bingung (bypass security check)
-    const newHeaders = new Headers(request.headers);
-    newHeaders.set('Host', 'dms.cimory.com');
-    newHeaders.set('Origin', 'https://dms.cimory.com');
-    newHeaders.set('Referer', 'https://dms.cimory.com/');
-
-    // Terusin kirim data utama dari Web Tool lu ke Server Cimory
-    const newRequest = new Request(url.toString(), {
-      method: request.method,
-      headers: newHeaders,
-      body: request.body,
-      redirect: 'follow'
+    // Bikin header baru agar server tujuan mengira ini request asli
+    const newHeaders = new Headers();
+    // Copy beberapa header penting jika ada
+    ['accept', 'content-type', 'user-agent'].forEach(h => {
+      if (request.headers.has(h)) newHeaders.set(h, request.headers.get(h));
     });
+    
+    newHeaders.set('Host', targetHostname);
 
-    const response = await fetch(newRequest);
+    try {
+      // Kita suruh Cloudflare follow redirect sampai dapet data final (maks 5x)
+      const response = await fetch(targetUrl, {
+        method: request.method,
+        headers: newHeaders,
+        body: request.body,
+        redirect: 'follow' 
+      });
 
-    // Bikin response baru lalu tempelin tiket izin CORS-nya biar diterima browser HP lu
-    const newResponse = new Response(response.body, response);
-    Object.keys(corsHeaders).forEach(header => {
-      newResponse.headers.set(header, corsHeaders[header]);
-    });
+      // Kita ambil body-nya (bisa text/json)
+      const body = await response.arrayBuffer();
 
-    return newResponse;
+      // Balikin dengan header CORS yang kita kontrol sendiri
+      return new Response(body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': response.headers.get('Content-Type') || 'application/json'
+        }
+      });
+    } catch (e) {
+      return new Response(JSON.stringify({ error: e.message }), { 
+        status: 500, 
+        headers: corsHeaders 
+      });
+    }
   }
 };
