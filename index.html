@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bukan SIAP V3</title>
+    <title>Bukan SIAP V3.1</title>
     <link rel="stylesheet" href="style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -53,7 +53,7 @@
                 <div class="header-left">
                     <img src="icons/logo.png" alt="Logo" class="app-logo">
                     <div class="header-text">
-                        <h1 class="app-title">Bukan SIAP <span class="version-badge">V3</span></h1>
+                        <h1 class="app-title">Bukan SIAP <span class="version-badge">V3.1</span></h1>
                         <p class="app-subtitle">Batch Visit Processor</p>
                     </div>
                 </div>
@@ -80,6 +80,13 @@
                                 <div class="ami-text">
                                     <span class="ami-title">Download RKM</span>
                                     <span class="ami-sub" id="ami-account-hint">Tarik RKM dari DMS</span>
+                                </div>
+                            </button>
+                            <button class="action-menu-item" onclick="closeActionMenu(); openExtraCallModal()">
+                                <span class="ami-icon">➕</span>
+                                <div class="ami-text">
+                                    <span class="ami-title">Tambah Toko</span>
+                                    <span class="ami-sub">Cari toko di luar RKM</span>
                                 </div>
                             </button>
                             <div class="action-menu-divider"></div>
@@ -113,9 +120,20 @@
                     >
                     <button class="search-clear-btn" id="search-clear-btn" onclick="clearSearch()" title="Hapus Pencarian">✕</button>
                 </div>
-                <!-- Status summary dipindah ke sini -->
-                <div id="stores-count" class="stores-count-inline hidden"></div>
             </div>
+
+            <!-- ===== TAB NAVIGATION ===== -->
+            <nav class="tab-navigation">
+                <div class="tab-item active" onclick="switchTab('tasks')">
+                    Tugas <span id="badge-tasks" class="tab-badge"></span>
+                </div>
+                <div class="tab-item" onclick="switchTab('ready')">
+                    Siap Setor <span id="badge-ready" class="tab-badge"></span>
+                </div>
+                <div class="tab-item" onclick="switchTab('history')">
+                    Selesai <span id="badge-history" class="tab-badge"></span>
+                </div>
+            </nav>
         </header>
 
         <!-- Scrollable Main Content -->
@@ -139,7 +157,7 @@
     </div>
 
     <!-- ===== EMAIL SETUP MODAL ===== -->
-    <div id="email-modal" class="modal-overlay hidden">
+    <div id="email-modal" class="modal-overlay input-modal hidden">
         <div class="modal-container" style="max-width: 380px;">
             <div class="modal-header">
                 <div>
@@ -211,13 +229,40 @@
         </div>
     </div>
 
-    <!-- Upload Result Modal -->
-    <div id="upload-modal" class="modal-overlay hidden">
-        <div class="upload-modal-content">
-            <div id="upload-modal-icon" class="upload-modal-icon"></div>
-            <h3 id="upload-modal-title" class="upload-modal-title">Mantap!</h3>
-            <p id="upload-modal-message" class="upload-modal-msg">X Toko berhasil di-upload.</p>
-            <button class="btn-primary" style="margin-top: 24px; width: 100%; border-radius: 20px; font-weight: 600;" onclick="closeUploadModal()">OKE, TUTUP</button>
+    <!-- Extra Call Modal (Search Store) -->
+    <div id="extra-call-modal" class="modal-overlay hidden">
+        <div class="modal-content extra-call-content">
+            <div class="modal-header">
+                <div>
+                    <div class="modal-title">🔍 Tambah Toko (Extra Call)</div>
+                    <div class="modal-store-name">Cari toko di database Cimory</div>
+                </div>
+                <button class="modal-close-btn" onclick="closeExtraCallModal()">✕</button>
+            </div>
+            <div class="extra-call-body">
+                <div class="extra-call-search-box">
+                    <input 
+                        type="text" 
+                        id="input-search-extracall" 
+                        class="form-input" 
+                        placeholder="Ketik Nama atau Kode Toko..."
+                        onkeydown="if(event.key==='Enter') searchExtraCall()"
+                    >
+                    <button class="btn-primary btn-search-extracall" onclick="searchExtraCall()">CARI</button>
+                </div>
+                
+                <div id="extracall-status" class="extracall-status hidden"></div>
+                
+                <div id="extracall-results" class="extracall-results custom-scrollbar">
+                    <div class="extracall-empty-state">
+                        <span style="font-size: 40px; display: block; margin-bottom: 10px;">🏘️</span>
+                        Hasil pencarian bakal muncul di sini...
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" style="width: 100%;" onclick="closeExtraCallModal()">Tutup</button>
+            </div>
         </div>
     </div>
 
@@ -225,5 +270,49 @@
     <script src="store_master.js"></script>
     <script src="photo_utils.js"></script>
     <script src="app.js"></script>
+    <!-- SKIP VISIT MODAL (TIDAK DIKUNJUNGI) -->
+    <div id="skip-visit-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>❌ Alasan Tidak Dikunjungi</h3>
+                <button class="btn-close-modal" onclick="closeSkipModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size: 13px; color: #888; margin-bottom: 15px;">Kenapa toko ini nggak bisa dikunjungi hari ini bro?</p>
+                
+                <div class="form-group">
+                    <label>Alasan Resmi:</label>
+                    <select id="select-skip-alasan" class="extracall-input">
+                        <!-- Options will be populated via JS -->
+                    </select>
+                </div>
+
+                <div class="form-group" style="margin-top: 15px;">
+                    <label>Keterangan Tambahan:</label>
+                    <textarea id="input-skip-reason" class="extracall-input" style="height: 100px; padding: 10px; resize: none;" placeholder="Contoh: Toko tutup permanen / Males Kunjungan..."></textarea>
+                </div>
+
+                <div id="skip-status" class="extracall-status hidden"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel" onclick="closeSkipModal()">Batal</button>
+                <button class="btn-submit" onclick="submitSkipVisit()" id="btn-save-skip">SIMPAN ALASAN</button>
+            </div>
+        </div>
+    </div>
+    <!-- CUSTOM PREMIUM DIALOG (REPLACES ALERT/CONFIRM) -->
+    <div id="custom-dialog" class="modal-overlay hidden" style="z-index: 9999;">
+        <div class="modal-card dialog-card">
+            <div class="dialog-body">
+                <div id="dialog-icon" class="dialog-icon">ℹ️</div>
+                <h3 id="dialog-title">Konfirmasi</h3>
+                <p id="dialog-message">Apakah lu yakin bro?</p>
+            </div>
+            <div class="modal-footer dialog-footer">
+                <button id="dialog-btn-cancel" class="btn-cancel">Batal</button>
+                <button id="dialog-btn-ok" class="btn-submit">Oke</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

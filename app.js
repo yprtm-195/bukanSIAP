@@ -5,8 +5,29 @@
 // ============================================
 // STATE MANAGEMENT
 // ============================================
-let rkmData = null;
-let storeStates = {}; // { storeCode: { data, checkInTime, checkOutTime, photos, stock, gps, status } }
+let rkmData = null; // Original full data from server/file
+let storeStates = {}; // Persisted state { storeCode: { checkInTime, photos, etc } }
+let currentAppTab = 'tasks'; // Default tab: 'tasks', 'ready', 'history'
+
+// Initialize Tabs on Load
+window.switchTab = function(tabId) {
+    currentAppTab = tabId;
+    
+    // Update UI active state
+    document.querySelectorAll('.tab-item').forEach(tab => {
+        tab.classList.remove('active');
+        const text = tab.textContent.toLowerCase();
+        if (tabId === 'tasks' && text.includes('tugas')) tab.classList.add('active');
+        if (tabId === 'ready' && text.includes('siap')) tab.classList.add('active');
+        if (tabId === 'history' && text.includes('selesai')) tab.classList.add('active');
+    });
+
+    renderStoreCards();
+    
+    // Save tab preference
+    localStorage.setItem('LAST_ACTIVE_TAB', tabId);
+};
+
 let externalStockData = {};
 const STOCK_API_URL = "https://raw.githubusercontent.com/yprtm-195/webstok/refs/heads/main/docs/live_stock.json";
 
@@ -30,12 +51,20 @@ const storesCountEl = document.getElementById('stores-count');
 const btnUpload = document.getElementById('btn-upload');
 const uploadProgress = document.getElementById('upload-progress');
 
-// CONFIG
-const MOCK_UPLOAD = false; // Set to false for Production
+// CONFIG & API ENDPOINTS
+const MOCK_UPLOAD = false; 
+const PROXY_URL = "https://cimory-proxy.yohandi-pratama.workers.dev"; // Cloudflare Workers Proxy
+const DMS_BASE_URL = "https://dms.cimory.com";
 
-// ============================================
-// INITIALIZATION
-// ============================================
+// Endpoint Helper (biar rapi)
+const getDmsUrl = (path) => {
+    if (PROXY_URL && PROXY_URL.includes("workers.dev")) {
+        // Jika ada PROXY, arahkan lewat proxy
+        return `${PROXY_URL}${path}`;
+    }
+    // Fallback ke direct (untuk testing desktop dengan CORS extension)
+    return `${DMS_BASE_URL}${path}`;
+};
 document.addEventListener('DOMContentLoaded', () => {
     // Tombol upload disabled by default sampai ada toko siap
     if (btnUpload) { btnUpload.disabled = true; btnUpload.style.opacity = '0.45'; }
@@ -247,7 +276,7 @@ const DMS_RKM_URL = "https://cimory-proxy.yohandi-pratama.workers.dev/api/sfaser
 async function loadDailyRKM() {
     // Cek sesi aktif dulu
     if (Object.keys(storeStates).length > 0) {
-        const proceed = confirm("⛔ ADA SESI KERJA AKTIF!\n\nKalo lu nge-load RKM dari server sekarang, SEMUA KERJAAN hari ini bakal HANGUS dan mulai dari nol.\n\nLu yakin mau ngapus dan narik data baru?");
+        const proceed = await cimoryConfirm("Kalo lu nge-load RKM dari server sekarang, SEMUA KERJAAN hari ini bakal HANGUS dan mulai dari nol.\n\nLu yakin mau ngapus dan narik data baru?", "⛔ ADA SESI KERJA AKTIF!", "⛔");
         if (!proceed) return;
     }
     
@@ -313,7 +342,8 @@ async function doDownloadRKM(email) {
     clearSession();
     
     try {
-        const response = await fetch(DMS_RKM_URL, {
+        const url = getDmsUrl("/api/sfaservice/downloadrkm");
+        const response = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ Key: 'IMEI', Value: email })
@@ -438,11 +468,11 @@ async function silentSyncMasterData() {
     }
 }
 
-function handleFileSelect(e) {
+async function handleFileSelect(e) {
     const file = e.target.files[0];
     if (file) {
         if (Object.keys(storeStates).length > 0) {
-            const proceed = confirm("⛔ ADA SESI KERJA AKTIF!\n\nKalo lu nge-load JSON sekarang, SEMUA KERJAAN hari ini bakal HANGUS bro.\n\nLu yakin mau nimpa pakai file ini?");
+            const proceed = await cimoryConfirm("Kalo lu nge-load JSON sekarang, SEMUA KERJAAN hari ini bakal HANGUS bro.\n\nLu yakin mau nimpa pakai file ini?", "⛔ ADA SESI KERJA AKTIF!", "⛔");
             if (!proceed) {
                 e.target.value = ''; // Reset input to allow re-selecting same file later
                 return;
@@ -549,6 +579,12 @@ function processRKMData(data, isRestore = false) {
     // ------------------------------------------
     
     rkmData = data;
+
+    // Simpen Master Alasan buat Skip Visit
+    if (data.ListAlasan) {
+        localStorage.setItem('DMS_REASONS', JSON.stringify(data.ListAlasan));
+        console.log("✅ Master Alasan Skip Visit Berhasil Disimpan.");
+    }
     
     if (!isRestore) {
         storeStates = {};
@@ -576,6 +612,8 @@ function processRKMData(data, isRestore = false) {
             } else if (store.RKMD.CheckInTime) {
                 initialStatus = 'checked-in';
                 initialCheckIn = parseJsonDate(store.RKMD.CheckInTime);
+            } else if (store.RKMD.ReasonTime) {
+                initialStatus = 'skipped';
             }
 
             storeStates[storeCode] = {
@@ -620,33 +658,11 @@ function processRKMData(data, isRestore = false) {
 // ============================================
 function filterStores(query) {
     const q = query.trim().toLowerCase();
-    const cards = document.querySelectorAll('#stores-container .store-card');
     const clearBtn = document.getElementById('search-clear-btn');
-    
     if (clearBtn) clearBtn.style.display = q ? 'flex' : 'none';
     
-    let visibleCount = 0;
-    cards.forEach(card => {
-        const name = (card.querySelector('.store-name')?.textContent || '').toLowerCase();
-        const code = (card.querySelector('.store-code')?.textContent || '').toLowerCase();
-        const match = !q || name.includes(q) || code.includes(q);
-        card.style.display = match ? '' : 'none';
-        if (match) visibleCount++;
-    });
-    
-    // Sembunyiin group header yang isinya kosong semua
-    document.querySelectorAll('.stores-group-header').forEach(header => {
-        let next = header.nextElementSibling;
-        let hasVisible = false;
-        while (next && !next.classList.contains('stores-group-header')) {
-            if (next.classList.contains('store-card') && next.style.display !== 'none') {
-                hasVisible = true;
-                break;
-            }
-            next = next.nextElementSibling;
-        }
-        header.style.display = hasVisible ? '' : 'none';
-    });
+    // In Tabbed UI, we re-render everything based on search
+    renderStoreCards();
 }
 
 function clearSearch() {
@@ -720,7 +736,7 @@ function loadAllStockData() {
     });
 }
 
-function updateManualStock(storeCode, itemCode, newValue) {
+function updateManualStock(storeCode, itemCode, newValue, element) {
     const state = storeStates[storeCode];
     const qty = parseInt(newValue) || 0;
 
@@ -730,13 +746,19 @@ function updateManualStock(storeCode, itemCode, newValue) {
         state.stockData[itemIndex].JumSatuan = qty;
         console.log(`[STOK] ${storeCode} - ${itemCode} updated to: ${qty}`);
         
+        // Live color update
+        if (element) {
+            element.style.color = qty > 0 ? '#3fb950' : '#f85149';
+            element.style.fontWeight = qty > 0 ? 'bold' : 'normal';
+        }
+
         // Save to session so it persists refresh
         saveSession();
     }
 }
 
-function reOpenStore(storeCode) {
-    if (!confirm('Buka kuncian toko ini buat diedit/re-upload lagi?')) return;
+async function reOpenStore(storeCode) {
+    if (!await cimoryConfirm('Buka kuncian toko ini buat diedit/re-upload lagi?', 'Konfirmasi Buka Toko', '✏️')) return;
     
     const state = storeStates[storeCode];
     state.status = 'checked-in'; // Balikin status ke checked-in biar tombol OUT muncul lagi
@@ -753,63 +775,88 @@ function reOpenStore(storeCode) {
 function renderStoreCards() {
     storesContainer.innerHTML = '';
     const allStoreCodes = Object.keys(storeStates);
+    const searchQuery = document.getElementById('live-store-search')?.value?.trim().toLowerCase() || '';
 
-    // Filter toko jadi 3 grup sesuai progres
-    const pendingStores = allStoreCodes.filter(code => {
+    // 1. Grouping stores for stats & badges
+    const tasks = allStoreCodes.filter(code => {
         const s = storeStates[code];
-        return !s.isSynced && s.status !== 'checked-out';
+        const isSkipped = s.status === 'skipped';
+        return !s.isSynced && s.status !== 'checked-out' && !isSkipped;
     });
     
-    const readyToUploadStores = allStoreCodes.filter(code => {
+    const ready = allStoreCodes.filter(code => {
         const s = storeStates[code];
-        return !s.isSynced && s.status === 'checked-out';
+        const isSkipped = s.status === 'skipped';
+        return !s.isSynced && (s.status === 'checked-out' || isSkipped);
     });
 
-    const syncedStores = allStoreCodes.filter(code => storeStates[code].isSynced);
+    const history = allStoreCodes.filter(code => storeStates[code].isSynced);
 
-    // 1. Render Grup: BELUM DIKERJAKAN
-    if (pendingStores.length > 0) {
-        const header = document.createElement('div');
-        header.className = 'stores-group-header';
-        header.innerHTML = `<span>⏳ BELUM DIKUNJUNGI (${pendingStores.length})</span>`;
-        storesContainer.appendChild(header);
+    // 2. Update Tab Badges
+    updateTabBadge('tasks', tasks.length);
+    updateTabBadge('ready', ready.length);
+    updateTabBadge('history', history.length);
 
-        pendingStores.forEach(storeCode => {
+    // 3. Filter stores to display based on current tab
+    let displayCodes = [];
+    if (currentAppTab === 'tasks') displayCodes = tasks;
+    else if (currentAppTab === 'ready') displayCodes = ready;
+    else if (currentAppTab === 'history') displayCodes = history;
+
+    // 4. Apply Global Search Filter
+    if (searchQuery) {
+        displayCodes = displayCodes.filter(code => {
+            const s = storeStates[code];
+            const name = (s.storeData?.RKMD?.NamaCustomer || s.storeData?.NamaCustomer || '').toLowerCase();
+            return code.toLowerCase().includes(searchQuery) || name.includes(searchQuery);
+        });
+    }
+
+    // 5. Toggle Footer Visibility (Only show Upload button in 'ready' tab)
+    const footer = document.querySelector('.app-footer');
+    if (footer) {
+        if (currentAppTab === 'ready' && ready.length > 0) {
+            footer.classList.remove('footer-hidden');
+        } else {
+            footer.classList.add('footer-hidden');
+        }
+    }
+
+    // 6. Render Cards
+    if (displayCodes.length === 0) {
+        storesContainer.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-icon">${searchQuery ? '🔍' : '🏜️'}</div>
+                <div class="empty-text">${searchQuery ? 'Gak nemu toko yang cocok bro...' : 'Tab ini kosong melompong bro!'}</div>
+            </div>
+        `;
+    } else {
+        displayCodes.forEach(storeCode => {
             const card = createStoreCard(storeCode, storeStates[storeCode]);
             storesContainer.appendChild(card);
         });
     }
 
-    // 2. Render Grup: SIAP UPLOAD
-    if (readyToUploadStores.length > 0) {
-        const header = document.createElement('div');
-        header.className = 'stores-group-header ready-header';
-        header.innerHTML = `<span>🚀 SIAP UPLOAD (${readyToUploadStores.length})</span>`;
-        storesContainer.appendChild(header);
+    saveSession();
+}
 
-        readyToUploadStores.forEach(storeCode => {
-            const card = createStoreCard(storeCode, storeStates[storeCode]);
-            storesContainer.appendChild(card);
-        });
-    }
-
-    // 3. Render Grup: SUDAH TERUPLOAD
-    if (syncedStores.length > 0) {
-        const header = document.createElement('div');
-        header.className = 'stores-group-header completed-header';
-        header.innerHTML = `<span>✅ SUDAH DIUPLOAD (${syncedStores.length})</span>`;
-        storesContainer.appendChild(header);
-
-        syncedStores.forEach(storeCode => {
-            const card = createStoreCard(storeCode, storeStates[storeCode]);
-            storesContainer.appendChild(card);
-        });
+function updateTabBadge(tabId, count) {
+    const badge = document.getElementById(`badge-${tabId}`);
+    if (!badge) return;
+    
+    if (count > 0) {
+        badge.textContent = count;
+        badge.classList.add('visible');
+    } else {
+        badge.classList.remove('visible');
     }
 }
 function createStoreCard(storeCode, state) {
     const card = document.createElement('div');
-    card.className = `store-card ${state.status === 'checked-out' ? 'store-locked' : ''}`;
+    const isSkipped = state.status === 'skipped';
+    card.className = `store-card ${state.status === 'checked-out' ? 'store-locked' : ''} ${isSkipped ? 'skipped' : ''} ${state.isSynced ? 'is-synced' : ''}`;
     card.dataset.storeCode = storeCode;
+    card.dataset.status = state.status; // Biar CSS bisa kasih warna aksen
     
     // Get validation status
     const validation = validateStoreCompleteness(storeCode);
@@ -841,7 +888,13 @@ function createStoreCard(storeCode, state) {
         badgeIcon = '⚠';
         badgeText = 'Belum Lengkap';
     } 
-    // Priority 4: Default (Not Started)
+    // Priority 4: Skipped (Not Visited)
+    else if (state.status === 'skipped') {
+        badgeClass = 'status-tag skipped';
+        badgeIcon = '❌';
+        badgeText = 'Skil / Dilewati';
+    }
+    // Priority 5: Default (Not Started)
     else {
         badgeClass = 'status-ready';
         badgeIcon = '○';
@@ -857,7 +910,7 @@ function createStoreCard(storeCode, state) {
                 <div class="store-name">${storeName}</div>
                 <div class="store-header-bottom">
                     <span class="store-code">${storeCode}</span>
-                    <span class="completeness-badge ${badgeClass}">${badgeIcon} ${badgeText}</span>
+                    <span class="completeness-badge ${badgeClass}">${badgeIcon}<span class="badge-text">${badgeText}</span></span>
                     ${state.isSynced ? `<button class="btn-reupload" onclick="event.stopPropagation(); reOpenStore('${storeCode}')">✏️ Edit & Re-Upload</button>` : ''}
                 </div>
             </div>
@@ -976,10 +1029,10 @@ function renderGPSSection(storeCode, state) {
                 </div>
                 <div class="gps-controls">
                     <button class="btn-secondary" onclick="useDeviceGPS('${storeCode}')" ${disabledAttr}>
-                        📡 Use My GPS
+                        📡 GPS Asli
                     </button>
                     <button class="btn-secondary" onclick="addJitter('${storeCode}')" ${disabledAttr}>
-                        Geser Sedikit 📌
+                        Fake GPS 📌
                     </button>
                 </div>
                 <div id="map-${storeCode}" class="store-map"></div>
@@ -1130,15 +1183,17 @@ function renderTimelineSection(storeCode, state) {
     const isComplete = state.checkInTime && state.checkOutTime;
     const validClass = isComplete ? '' : 'section-incomplete';
 
-    const checkInDisabled  = isReadOnly || state.status !== 'ready';
-    const checkOutDisabled = isReadOnly || state.status !== 'checked-in';
+    const isSkipped = state.status === 'skipped';
+    
+    const checkInDisabled  = isReadOnly || state.status !== 'ready' || isSkipped;
+    const checkOutDisabled = isReadOnly || state.status !== 'checked-in' || isSkipped;
 
     // Photo helpers
     const photos = state.photos;
     const isPhotoComplete = photos.checkin.length >= 1 &&
                             photos.before.length  >= 1 &&
                             photos.after.length   >= 1;
-    const photoDisabled = isReadOnly ? 'disabled' : '';
+    const photoDisabled = (isReadOnly || isSkipped) ? 'disabled' : '';
 
     // Format stored timestamps ke HH:mm
     const fmtTime = (ts) => {
@@ -1173,7 +1228,7 @@ function renderTimelineSection(storeCode, state) {
                 <!-- CHECK IN ROW -->
                 <div class="timeline-simple-row">
                     <div class="timeline-time-block">
-                        <label class="timeline-simple-label">In <small style="font-size: 8px; opacity: 0.5;">(24h)</small></label>
+                        <label class="timeline-simple-label">   ⏰ Check In    <small style="font-size: 8px; opacity: 0.5;">(24h)</small></label>
                         <input type="text" class="time-input-simple time-input-hh time-input-checkin-hh" placeholder="HH" inputmode="numeric" maxlength="2" value="${fmtTime(state.checkInTime).split(':')[0] || ''}" ${checkInDisabled ? 'disabled' : ''} onkeydown="handleEnterAsTab(event)" onkeypress="handleEnterAsTab(event)" oninput="autoFocusNext(this)" onfocus="this.select()">
                         <span class="time-input-separator">:</span>
                         <input type="text" class="time-input-simple time-input-mm time-input-checkin-mm" placeholder="mm" inputmode="numeric" maxlength="2" value="${fmtTime(state.checkInTime).split(':')[1] || ''}" ${checkInDisabled ? 'disabled' : ''} onkeydown="handleEnterAsTab(event)" onkeypress="handleEnterAsTab(event)" onfocus="this.select()">
@@ -1182,9 +1237,23 @@ function renderTimelineSection(storeCode, state) {
                         class="btn-checkin"
                         onclick="handleCheckIn('${storeCode}')"
                         ${checkInDisabled ? 'disabled' : ''}>
-                        ${state.checkInTime ? '✅ ' + fmtTime(state.checkInTime) : '▶ IN'}
+                        ${state.checkInTime ? '✅ ' + fmtTime(state.checkInTime) : (isSkipped ? '❌ SKIPPED' : '▶ IN')}
                     </button>
+                    ${state.status === 'ready' ? `
+                        <button class="btn-skip-visit" onclick="openSkipModal('${storeCode}')" title="Mark as Not Visited">
+                            ❌ Tidak dikunjungi
+                        </button>
+                    ` : ''}
                 </div>
+
+                ${isSkipped ? `
+                <div class="skip-info-box" style="background: rgba(231, 76, 60, 0.05); padding: 12px; border-radius: 12px; border: 1px solid rgba(231, 76, 60, 0.2); margin: 10px 0;">
+                    <div style="font-size: 11px; color: #e74c3c; font-weight: bold; margin-bottom: 5px;">DETAIL TIDAK DIKUNJUNGI:</div>
+                    <div style="font-size: 13px; color: #fff; margin-bottom: 4px;">🎯 Alasan: <strong>${state.reasonCode || '-'}</strong></div>
+                    <div style="font-size: 12px; color: #aaa; font-style: italic;">📝 Keterangan: "${state.reasonText || '-'}"</div>
+                    <div style="font-size: 10px; color: #888; margin-top: 8px;">⏰ Waktu: ${state.skipTime ? new Date(state.skipTime).toLocaleString('id-ID') : '-'}</div>
+                </div>
+                ` : ''}
 
                 <!-- PHOTO UPLOAD SECTION (Unified Grid) -->
                 <div class="timeline-photo-block ${isPhotoComplete ? 'photo-complete' : ''}">
@@ -1250,7 +1319,7 @@ function renderTimelineSection(storeCode, state) {
                         class="btn-checkout"
                         onclick="handleCheckOut('${storeCode}')"
                         ${checkOutDisabled ? 'disabled' : ''}>
-                        ${state.checkOutTime ? '✅ ' + fmtTime(state.checkOutTime) : '⏹ OUT'}
+                        ${state.checkOutTime ? '✅ ' + fmtTime(state.checkOutTime) : '   ⏰ Check Out   '}
                     </button>
                 </div>
             </div>
@@ -1262,27 +1331,36 @@ function renderTimelineSection(storeCode, state) {
 
 function renderStockSection(storeCode, state) {
     const open = (state.openSection === 'stock');
-    const stockList = state.stockData
+    
+    // Sort stockData by KodeBarang numerically/alphabetically (Sat-set)
+    const sortedStock = [...(state.stockData || [])].sort((a, b) => {
+        const codeA = (a.KodeBarang || a.KodeBrg || "").trim();
+        const codeB = (b.KodeBarang || b.KodeBrg || "").trim();
+        return codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: 'base' });
+    });
+
+    const stockList = sortedStock
         .map(item => {
             const itemCode = (item.KodeBarang || item.KodeBrg || "").trim();
             const qty = item.JumSatuan || 0;
             const name = item.NamaBrg || item.NamaBarang || 'Unknown Product';
-            const qtyColor = qty > 0 ? '#3fb950' : '#f85149'; // Green for stock, red for empty
+            const qtyColor = qty > 0 ? '#3fb950' : '#f85149'; 
             
             return `
             <div class="stock-item">
                 <span class="stock-name">${itemCode} - ${name}</span>
-                <div style="display: flex; align-items: center; gap: 4px;">
+                <div class="stock-input-wrapper">
                     <input type="number"
                            class="manual-stock-input"
-                           style="width: 50px; text-align: center; border-radius: 6px; border: 1px solid var(--border-default); background: var(--bg-tertiary); color: ${qtyColor}; font-weight: ${qty > 0 ? 'bold' : 'normal'}; padding: 2px 4px; font-size: 13px;"
+                           style="color: ${qtyColor}; font-weight: ${qty > 0 ? 'bold' : 'normal'};"
                            value="${qty}"
                            min="0"
                            inputmode="numeric"
-                           onchange="updateManualStock('${storeCode}', '${itemCode}', this.value)"
+                           onchange="updateManualStock('${storeCode}', '${itemCode}', this.value, this)"
                            onkeydown="handleEnterAsTab(event)"
                            onkeypress="handleEnterAsTab(event)"
-                           ${state.isSynced ? 'disabled' : ''}>                    <span style="font-size: 11px; color: var(--text-secondary);">pcs</span>
+                           ${state.isSynced ? 'disabled' : ''}>
+                    <span class="stock-unit">pcs</span>
                 </div>
             </div>
         `;
@@ -1323,11 +1401,41 @@ window.updateManualStock = function(storeCode, itemCode, val) {
 function toggleSection(storeCode, section) {
     const state = storeStates[storeCode];
     // Kalau diklik yang sama → tutup (set null), kalau beda → buka yang baru
-    state.openSection = state.openSection === section ? null : section;
+    const opening = state.openSection !== section;
+    state.openSection = opening ? section : null;
+    
     refreshStoreCard(storeCode);
+
+    // Auto-scroll ke sub-section yang baru dibuka
+    if (opening) {
+        setTimeout(() => {
+            const card = document.querySelector(`[data-store-code="${storeCode}"]`);
+            if (card) {
+                // Cari title section-nya (pake search text atau urutan)
+                const titles = card.querySelectorAll('.section-accordion-title');
+                let target = null;
+                if (section === 'gps') target = titles[0];
+                else if (section === 'timeline') target = titles[1];
+                else if (section === 'stock') target = titles[2];
+
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            }
+        }, 200);
+    } else {
+        // FOCUS BACK TO MAIN CARD when closing a sub-section
+        setTimeout(() => {
+            const card = document.querySelector(`[data-store-code="${storeCode}"]`);
+            if (card) {
+                card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }, 100);
+    }
+
     // Re-init map kalau gps dibuka
     if (state.openSection === 'gps') {
-        setTimeout(() => initMap(storeCode), 150);
+        setTimeout(() => initMap(storeCode), 250);
     }
 }
 
@@ -1341,11 +1449,11 @@ function autoAdvanceSection(storeCode) {
 }
 
 // Hapus foto dari state
-window.removePhoto = function(storeCode, category, index) {
+window.removePhoto = async function(storeCode, category, index) {
     const state = storeStates[storeCode];
     if (!state || state.isSynced) return;
     
-    if (confirm('Hapus foto ini?')) {
+    if (await cimoryConfirm('Hapus foto ini?', 'Hapus Foto', '🗑️')) {
         state.photos[category].splice(index, 1);
         saveSession();
         refreshStoreCard(storeCode);
@@ -1388,10 +1496,20 @@ window.toggleStoreCard = function(storeCode) {
     if (isExpanded) {
         card.classList.remove('expanded');
         state.isExpanded = false;
+        
+        // FOCUS BACK TO CARD when collapsing main card
+        setTimeout(() => {
+            card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 100);
     } else {
         card.classList.add('expanded');
         state.isExpanded = true;
         
+        // Auto-scroll ke card yang baru dibuka (Smooth & Sat-set)
+        setTimeout(() => {
+            card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 150); 
+
         // Initialize Map when expanded
         setTimeout(() => initMap(storeCode), 100);
     }
@@ -1421,9 +1539,9 @@ function updateGPS(storeCode, coord, value) {
 }
 
 // New: Use real device GPS + apply jitter
-function useDeviceGPS(storeCode) {
+async function useDeviceGPS(storeCode) {
     if (!navigator.geolocation) {
-        alert('Browser lu tidak support Geolocation bro!');
+        await cimoryAlert('Browser lu tidak support Geolocation bro!', 'GPS Error', '❌');
         return;
     }
     
@@ -1533,7 +1651,7 @@ function handleCheckIn(storeCode) {
     saveSession();
 }
 
-function handleCheckOut(storeCode) {
+async function handleCheckOut(storeCode) {
     const state = storeStates[storeCode];
     const card = document.querySelector(`[data-store-code="${storeCode}"]`);
 
@@ -1690,7 +1808,7 @@ async function handlePhotoUpload(storeCode, category, files, maxFiles) {
     const remainingSlots = maxFiles - currentCount;
 
     if (remainingSlots <= 0) {
-        alert(`Slot foto ${category} sudah penuh (Max: ${maxFiles}). Hapus foto lama dulu bro.`);
+        await cimoryAlert(`Slot foto ${category} sudah penuh (Max: ${maxFiles}). Hapus foto lama dulu bro.`, "Slot Penuh", "⚠️");
         return;
     }
 
@@ -1741,14 +1859,17 @@ async function handleUploadWithValidation() {
     
     if (pendingStores.length > 0) {
         const pendingNames = pendingStores.map(code => {
-            const name = storeStates[code].storeData?.RKMD?.NamaToko || code;
+            const state = storeStates[code];
+            const name = state.storeData?.RKMD?.NamaCustomer || state.storeData?.NamaCustomer || code;
             return `  • ${name} (${code})`;
         }).join('\n');
         
-        const proceed = confirm(
-            `⚠️ ADA ${pendingStores.length} TOKO YANG BELUM SELESAI!\n\n` +
+        const proceed = await cimoryConfirm(
+            `ADA ${pendingStores.length} TOKO YANG BELUM SELESAI!\n\n` +
             `Toko belum di-check-out:\n${pendingNames}\n\n` +
-            `Yakin mau setor data sekarang? Toko yang belum selesai tidak akan ikut terupload.`
+            `Yakin mau setor data sekarang? Toko yang belum selesai tidak akan ikut terupload.`,
+            "⚠️ PERINGATAN UPLOAD",
+            "⚠️"
         );
         if (!proceed) return;
     }
@@ -1758,6 +1879,84 @@ async function handleUploadWithValidation() {
 }
 
 
+
+// ============================================
+// CUSTOM DIALOD SYSTEM (ALERT/CONFIRM)
+// ============================================
+
+/**
+ * Pengganti window.alert() - Modern & Aesthetic
+ */
+window.cimoryAlert = function(message, title = 'Informasi', icon = 'ℹ️') {
+    return new Promise((resolve) => {
+        const dialog = document.getElementById('custom-dialog');
+        const titleEl = document.getElementById('dialog-title');
+        const msgEl = document.getElementById('dialog-message');
+        const iconEl = document.getElementById('dialog-icon');
+        const btnCancel = document.getElementById('dialog-btn-cancel');
+        const btnOk = document.getElementById('dialog-btn-ok');
+
+        titleEl.textContent = title;
+        msgEl.textContent = message;
+        iconEl.textContent = icon;
+        
+        btnCancel.classList.add('hidden'); // Sembunyiin Batal buat Alert
+        btnOk.textContent = 'OK';
+
+        dialog.classList.remove('hidden');
+
+        const handleOk = () => {
+            dialog.classList.add('hidden');
+            btnOk.removeEventListener('click', handleOk);
+            resolve();
+        };
+
+        btnOk.addEventListener('click', handleOk);
+    });
+};
+
+/**
+ * Pengganti window.confirm() - Modern & Aesthetic
+ */
+window.cimoryConfirm = function(message, title = 'Konfirmasi', icon = '❓') {
+    return new Promise((resolve) => {
+        const dialog = document.getElementById('custom-dialog');
+        const titleEl = document.getElementById('dialog-title');
+        const msgEl = document.getElementById('dialog-message');
+        const iconEl = document.getElementById('dialog-icon');
+        const btnCancel = document.getElementById('dialog-btn-cancel');
+        const btnOk = document.getElementById('dialog-btn-ok');
+
+        titleEl.textContent = title;
+        msgEl.textContent = message;
+        iconEl.textContent = icon;
+        
+        btnCancel.classList.remove('hidden'); // Munculin Batal buat Confirm
+        btnOk.textContent = 'OKE';
+
+        dialog.classList.remove('hidden');
+
+        const onOk = () => {
+            dialog.classList.add('hidden');
+            cleanup();
+            resolve(true);
+        };
+
+        const onCancel = () => {
+            dialog.classList.add('hidden');
+            cleanup();
+            resolve(false);
+        };
+
+        const cleanup = () => {
+            btnOk.removeEventListener('click', onOk);
+            btnCancel.removeEventListener('click', onCancel);
+        };
+
+        btnOk.addEventListener('click', onOk);
+        btnCancel.addEventListener('click', onCancel);
+    });
+};
 
 function formatLocalISO(date) {
     if (!date) return null;
@@ -1783,7 +1982,13 @@ function buildPayload(storeCode, state) {
             CheckInLatitude: state.gpsLat,
             CheckInLongitude: state.gpsLng,
             CheckOutLatitude: state.gpsLat,
-            CheckOutLongitude: state.gpsLng
+            CheckOutLongitude: state.gpsLng,
+            // Skip Visit Fields
+            ReasonTime: formatLocalISO(state.skipTime),
+            Reason: state.reasonText || "",
+            KodeAlasan: state.reasonCode || "",
+            ReasonLatitude: state.reasonLat || 0,
+            ReasonLongitude: state.reasonLng || 0
         },
         ListPicHeader: [], // Photos uploaded separately via /uploadpict
         ListRKMDStok: stockData,
@@ -1868,15 +2073,15 @@ function buildPhotoPayload(storeCode, state) {
 async function handleDualApiUpload() {
     // Only upload stores that are checked-out AND NOT yet synced/uploaded
     const activeStores = Object.keys(storeStates).filter(code => 
-        storeStates[code].status === 'checked-out' && !storeStates[code].isSynced
+        (storeStates[code].status === 'checked-out' || storeStates[code].status === 'skipped') && !storeStates[code].isSynced
     );
     
     if (activeStores.length === 0) {
-        alert('Tidak ada toko baru yang siap diupload.\n(Toko yang sudah sukses terupload akan dilewati)');
+        await cimoryAlert('Tidak ada toko baru yang siap diupload.\n(Toko yang sudah sukses terupload akan dilewati)', 'Info Upload', 'ℹ️');
         return;
     }
 
-    if (!confirm(`Siap mengirim ${activeStores.length} data kunjungan TOKO BARU ke server?`)) {
+    if (!await cimoryConfirm(`Siap mengirim ${activeStores.length} data kunjungan TOKO BARU ke server?`, 'Konfirmasi Upload', '🚀')) {
         return;
     }
 
@@ -2003,7 +2208,8 @@ async function uploadStoreData(storeCode) {
     }
     
     // Gunakan Cloudflare Workers Proxy buatan sendiri untuk ngakalin CORS
-    const response = await fetch('https://cimory-proxy.yohandi-pratama.workers.dev/api/sfaservice/checkoutpostlater', {
+    const url = getDmsUrl("/api/sfaservice/checkoutpostlater");
+    const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -2037,7 +2243,8 @@ async function uploadPhoto(photoPayload) {
         return new Promise(resolve => setTimeout(resolve, 500)); // Simulate delay
     }
 
-    const response = await fetch('https://cimory-proxy.yohandi-pratama.workers.dev/api/sfaservice/uploadpict', {
+    const url = getDmsUrl("/api/sfaservice/uploadpict");
+    const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(photoPayload)
@@ -2176,3 +2383,303 @@ function validateStoreCompleteness(storeCode) {
     };
 }
 
+
+// ============================================
+// EXTRA CALL (ADD STORE)
+// ============================================
+
+window.openExtraCallModal = function() {
+    const modal = document.getElementById('extra-call-modal');
+    if (modal) modal.classList.remove('hidden');
+    
+    const input = document.getElementById('input-search-extracall');
+    if (input) {
+        input.value = '';
+        setTimeout(() => input.focus(), 100);
+    }
+    
+    // Clear previous results
+    const resultCont = document.getElementById('extracall-results');
+    if (resultCont) {
+        resultCont.innerHTML = `
+            <div class="extracall-empty-state">
+                <span style="font-size: 40px; display: block; margin-bottom: 10px;">🏘️</span>
+                Hasil pencarian bakal muncul di sini...
+            </div>
+        `;
+    }
+};
+
+window.closeExtraCallModal = function() {
+    const modal = document.getElementById('extra-call-modal');
+    if (modal) modal.classList.add('hidden');
+};
+
+window.searchExtraCall = async function() {
+    const input = document.getElementById('input-search-extracall');
+    const query = input?.value?.trim();
+    const statusEl = document.getElementById('extracall-status');
+    const resultCont = document.getElementById('extracall-results');
+    
+    if (!query) return;
+
+    // Ambil Kode Merchandiser asli dari RKM yang udah ke-load
+    const realMdsCode = getActiveMerchandiserCode();
+    
+    if (!realMdsCode) {
+        await cimoryAlert("Download RKM (Server Sinkron) dulu bro biar sistem tau ID Merchandiser lu!", "Data Belum Lengkap", "⚠️");
+        return;
+    }
+
+    statusEl.textContent = "⏳ Mencari toko (ID: " + realMdsCode + ")...";
+    statusEl.className = "extracall-status loading";
+    statusEl.classList.remove('hidden');
+    resultCont.innerHTML = '';
+
+    try {
+        const url = getDmsUrl("/api/sfaservice/getextracall");
+        const payload = {
+            Values: [
+                { Key: "KODE_MDS", Value: realMdsCode },
+                { Key: "FILTER", Value: query }
+            ]
+        };
+
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await response.json();
+        statusEl.classList.add('hidden');
+
+        if (data.StatusDownload === "OK" && data.ListDetail) {
+            renderExtraCallResults(data.ListDetail);
+        } else {
+            resultCont.innerHTML = `<div class="extracall-empty-state">❌ ${data.ErrorMessage || "Toko tidak ditemukan"}</div>`;
+        }
+    } catch (error) {
+        console.error("Search failed:", error);
+        statusEl.textContent = "❌ Gagal konek ke server (Cek Proxy!)";
+        statusEl.className = "extracall-status error";
+    }
+};
+
+function renderExtraCallResults(list) {
+    const resultCont = document.getElementById('extracall-results');
+    if (!list || list.length === 0) {
+        resultCont.innerHTML = `<div class="extracall-empty-state">Toko tidak ditemukan. Ganti keyword bro!</div>`;
+        return;
+    }
+
+    resultCont.innerHTML = list.map(item => `
+        <div class="extracall-item">
+            <div class="eci-info">
+                <span class="eci-code">${item.KodeCustomer}</span>
+                <span class="eci-name">${item.NamaCustomer}</span>
+                <span class="eci-address" title="${item.Alamat01}">${item.Alamat01 || '-'}</span>
+            </div>
+            <button class="btn-add-eci" onclick="addExtraCall('${item.KodeCustomer}')">
+                <span>➕</span> TAMBAH
+            </button>
+        </div>
+    `).join('');
+}
+
+window.addExtraCall = async function(kodeCustomer) {
+    const realMdsCode = getActiveMerchandiserCode();
+    const btn = event.currentTarget;
+    const originalHtml = btn.innerHTML;
+
+    if (!realMdsCode) return; // Should not happen if search worked
+
+    btn.disabled = true;
+    btn.innerHTML = "⏳..";
+
+    try {
+        const url = getDmsUrl("/api/sfaservice/addextracall");
+        const payload = {
+            Values: [
+                { Key: "KODE_MDS", Value: realMdsCode },
+                { Key: "KODE_CUS", Value: kodeCustomer }
+            ]
+        };
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await response.json();
+
+        if (data.StatusDownload === "OK" && data.ListRKMDetail) {
+            // "Sat-set" Injection!
+            processExtraCallData(data);
+            
+            // Success UX
+            btn.innerHTML = "✅ OKE";
+            setTimeout(() => {
+                closeExtraCallModal();
+                // Scroll ke paling bawah biar keliatan
+                window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+            }, 800);
+        } else {
+            await cimoryAlert("Gagal nambah toko: " + (data.ErrorMessage || "Udah ada di list?"), "Gagal Tambah Toko", "❌");
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+    } catch (error) {
+        console.error("Add Extra Call failed:", error);
+        await cimoryAlert("Error koneksi!", "Connection Error", "❌");
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+    }
+};
+
+function processExtraCallData(payload) {
+    // payload is DownloadExtraCallModel
+    payload.ListRKMDetail.forEach(item => {
+        const d = item.RKMD;
+        const storeCode = d.KodeCustomer;
+        
+        // Cek kalau udah ada
+        if (storeStates[storeCode]) return;
+
+        // Bikin state baru
+        storeStates[storeCode] = {
+            data: {
+                KodeCustomer: d.KodeCustomer,
+                NamaCustomer: item.NamaCustomer,
+                Alamat01: item.Alamat01,
+                Contact: d.Contact || '-',
+                Telp01: d.Telp01 || '-',
+                Latitude: d.Latitude || 0,
+                Longitude: d.Longitude || 0
+            },
+            checkInTime: null,
+            checkOutTime: null,
+            photos: { checkin: [], before: [], after: [] },
+            stock: {},
+            status: 'pending',
+            isSynced: false,
+            openSection: null
+        };
+
+        // Fill stock baseline if present
+        if (payload.ListRKMStok) {
+            payload.ListRKMStok.forEach(s => {
+                if (s.KodeCustomer === storeCode) {
+                    storeStates[storeCode].stock[s.KodeBarang] = {
+                        qty: 0,
+                        lastStock: s.PreviousCtn || 0,
+                        suggested: 0
+                    };
+                }
+            });
+        }
+    });
+
+    // Refresh UI
+    renderStoreCards();
+    saveSession(); // Persist the new store
+}
+
+// Helper buat dapetin ID Merchandiser asli dari data RKM yang udah ke-load
+function getActiveMerchandiserCode() {
+    // Coba cari dari list toko yang ada
+    for (const storeCode in storeStates) {
+        const mds = storeStates[storeCode]?.storeData?.RKMD?.KodeMerchandiser;
+        if (mds) return mds.trim();
+    }
+    
+    // Fallback: cek rkmData langsung
+    if (rkmData && rkmData.ListRKMDetail && rkmData.ListRKMDetail.length > 0) {
+        return rkmData.ListRKMDetail[0].RKMD.KodeMerchandiser.trim();
+    }
+    
+    return null;
+}
+
+// ============================================
+// SKIP VISIT (TIDAK DIKUNJUNGI)
+// ============================================
+
+let currentSkipStoreCode = null;
+
+window.openSkipModal = function(storeCode) {
+    currentSkipStoreCode = storeCode;
+    const modal = document.getElementById('skip-visit-modal');
+    const select = document.getElementById('select-skip-alasan');
+    const reasonText = document.getElementById('input-skip-reason');
+    
+    if (modal) modal.classList.remove('hidden');
+    if (reasonText) reasonText.value = '';
+
+    // Populate Reasons from LocalStorage
+    const reasonsRaw = localStorage.getItem('DMS_REASONS');
+    if (reasonsRaw && select) {
+        const reasons = JSON.parse(reasonsRaw);
+        select.innerHTML = '<option value="">- Belum dipilih -</option>' + 
+            reasons.map(r => `<option value="${r.KodeAlasan}">${r.NamaAlasan}</option>`).join('');
+    } else {
+        select.innerHTML = '<option value="">(Error: Data Alasan Kosong!)</option>';
+    }
+};
+
+window.closeSkipModal = function() {
+    const modal = document.getElementById('skip-visit-modal');
+    if (modal) modal.classList.add('hidden');
+};
+
+window.submitSkipVisit = async function() {
+    if (!currentSkipStoreCode) return;
+
+    const select = document.getElementById('select-skip-alasan');
+    const reasonInput = document.getElementById('input-skip-reason');
+    const btn = document.getElementById('btn-save-skip');
+    
+    const reasonCode = select.value;
+    const reasonText = reasonInput.value.trim();
+
+    if (!reasonCode) {
+        await cimoryAlert("Pilih alasan resminya dulu bro!", "Form Belum Lengkap", "⚠️");
+        return;
+    }
+    if (!reasonText) {
+        await cimoryAlert("Kasih keterangan dikit lah bro biar admin nggak nanya-nanya!", "Form Belum Lengkap", "⚠️");
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = "⏳ Menyimpan...";
+
+    try {
+        // Nangkep kordinat terakhir (pake store kordinat kalo GPS alat error)
+        let lat = currentLat || storeStates[currentSkipStoreCode]?.gpsLat || 0;
+        let lng = currentLng || storeStates[currentSkipStoreCode]?.gpsLng || 0;
+
+        // Update State
+        storeStates[currentSkipStoreCode].status = 'skipped';
+        storeStates[currentSkipStoreCode].skipTime = new Date();
+        storeStates[currentSkipStoreCode].reasonCode = reasonCode;
+        storeStates[currentSkipStoreCode].reasonText = reasonText;
+        storeStates[currentSkipStoreCode].reasonLat = lat;
+        storeStates[currentSkipStoreCode].reasonLng = lng;
+
+        // Save & Refresh
+        saveSession();
+        renderStoreCards(); // Updated from renderStores()
+        
+        closeSkipModal();
+        await cimoryAlert("Sip bro, status toko berhasil diupdate jadi 'Terlewati'.", "Sukses Update", "✅");
+    } catch (e) {
+        console.error("Skip Visit failed:", e);
+        await cimoryAlert("Gagal update status!", "Error", "❌");
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "SIMPAN ALASAN";
+    }
+};
