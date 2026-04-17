@@ -13,6 +13,13 @@ let currentAppTab = 'tasks'; // Default tab: 'tasks', 'ready', 'history'
 window.switchTab = function(tabId) {
     currentAppTab = tabId;
     
+    // Auto-collapse all items on tab switch to ensure clean view
+    for (let code in storeStates) {
+        if (storeStates[code]) {
+            storeStates[code].openSection = null;
+        }
+    }
+
     // Update UI active state
     document.querySelectorAll('.tab-item').forEach(tab => {
         tab.classList.remove('active');
@@ -21,6 +28,28 @@ window.switchTab = function(tabId) {
         if (tabId === 'ready' && text.includes('siap')) tab.classList.add('active');
         if (tabId === 'history' && text.includes('selesai')) tab.classList.add('active');
     });
+
+    // Toggle FAB Visibility (Hanya muncul di tab Tugas)
+    const fab = document.getElementById('fab-pricetag');
+    if (fab) {
+        if (tabId === 'tasks') {
+            fab.style.display = 'flex';
+        } else {
+            fab.style.display = 'none';
+        }
+    }
+
+    // Toggle Server Verification Action Visibility (In Footer)
+    const verifyAction = document.getElementById('verify-action-container');
+    const uploadBtn = document.getElementById('btn-upload');
+    
+    if (tabId === 'history') {
+        if (verifyAction) verifyAction.classList.remove('hidden');
+        if (uploadBtn) uploadBtn.classList.add('hidden');
+    } else {
+        if (verifyAction) verifyAction.classList.add('hidden');
+        if (uploadBtn) uploadBtn.classList.remove('hidden');
+    }
 
     renderStoreCards();
     
@@ -52,7 +81,7 @@ const btnUpload = document.getElementById('btn-upload');
 const uploadProgress = document.getElementById('upload-progress');
 
 // CONFIG & API ENDPOINTS
-const MOCK_UPLOAD = false; 
+// MOCK_UPLOAD diatur dari config.js (true = trial, false = production)
 const PROXY_URL = "https://cimory-proxy.yohandi-pratama.workers.dev"; // Cloudflare Workers Proxy
 const DMS_BASE_URL = "https://dms.cimory.com";
 
@@ -69,6 +98,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Tombol upload disabled by default sampai ada toko siap
     if (btnUpload) { btnUpload.disabled = true; btnUpload.style.opacity = '0.45'; }
 
+    // Cek setup SIAP credentials dulu sebelum apapun (Dihapus agar tidak auto-popup karena pake default RIKI/1234)
+    // checkSiapSetup(); // <-- DIMATIKAN
+
     initIndexedDB();
     fetchExternalStock();
     setupPayloadGeneration();
@@ -79,7 +111,20 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Update tooltip akun jika sudah tersimpan
     updateAccountTooltip();
+
+    // Inisialisasi Tab (Muat tab terakhir atau default ke 'tasks')
+    const lastTab = localStorage.getItem('LAST_ACTIVE_TAB') || 'tasks';
+    switchTab(lastTab);
 });
+
+// ============================================
+// Helper buat ambil credentials SIAP (localStorage first, fallback config.js, fallback default)
+function getSiapCredentials() {
+    return {
+        username: localStorage.getItem('SIAP_STORED_USER') || (typeof SIAP_USERNAME !== 'undefined' ? SIAP_USERNAME : 'RIKI'),
+        password: localStorage.getItem('SIAP_STORED_PASS') || (typeof SIAP_PASSWORD !== 'undefined' ? SIAP_PASSWORD : '1234')
+    };
+}
 
 function updateAccountTooltip() {
     const saved = localStorage.getItem('USER_EMAIL_DMS');
@@ -295,32 +340,46 @@ async function loadDailyRKM() {
 // Buka modal email, pre-fill kalau ada email tersimpan
 function openEmailModal() {
     const modal = document.getElementById('email-modal');
-    const input = document.getElementById('input-user-email');
-    const savedEmail = localStorage.getItem('USER_EMAIL_DMS');
+    const inputEmail = document.getElementById('input-user-email');
+    const inputMds = document.getElementById('input-mds-name');
     
-    if (input && savedEmail) {
-        input.value = savedEmail;
-        // Update label biar keliatan ini mode "ganti"
+    const savedEmail = localStorage.getItem('USER_EMAIL_DMS');
+    const savedMds = localStorage.getItem('USER_MDS_NAME');
+    
+    if (inputEmail && savedEmail) inputEmail.value = savedEmail;
+    if (inputMds && savedMds) inputMds.value = savedMds;
+    
+    if (inputEmail && savedEmail) {
         const label = document.getElementById('email-modal-label');
         if (label) label.textContent = 'Email Akun DMS (tersimpan):';
     }
     
     if (modal) modal.classList.remove('hidden');
-    if (input) setTimeout(() => { input.select(); }, 100);
+    if (inputEmail) setTimeout(() => { inputEmail.select(); }, 100);
 }
 
 // Dipanggil dari tombol modal setelah user isi email
 async function saveEmailAndDownload() {
-    const input = document.getElementById('input-user-email');
-    const email = input?.value?.trim();
+    const inputEmail = document.getElementById('input-user-email');
+    const inputMds = document.getElementById('input-mds-name');
+    
+    const email = inputEmail?.value?.trim();
+    const mdsName = inputMds?.value?.trim()?.toUpperCase();
     
     if (!email || !email.includes('@')) {
-        input.style.borderColor = 'var(--accent-danger)';
-        input.placeholder = 'Email tidak valid!';
+        inputEmail.style.borderColor = 'var(--accent-danger)';
+        return;
+    }
+    
+    if (VERIFICATION_ENABLED && !mdsName) {
+        inputMds.style.borderColor = 'var(--accent-danger)';
+        inputMds.placeholder = 'Nama MDS wajib diisi!';
         return;
     }
     
     localStorage.setItem('USER_EMAIL_DMS', email);
+    if (mdsName) localStorage.setItem('USER_MDS_NAME', mdsName);
+    
     updateAccountTooltip();
     document.getElementById('email-modal').classList.add('hidden');
     await doDownloadRKM(email);
@@ -812,17 +871,21 @@ function renderStoreCards() {
         });
     }
 
-    // 5. Toggle Footer Visibility (Only show Upload button in 'ready' tab)
+    // 5. Toggle Footer Visibility
     const footer = document.querySelector('.app-footer');
     if (footer) {
-        if (currentAppTab === 'ready' && ready.length > 0) {
+        // Show footer in 'ready' tab (for upload) OR 'history' tab (for verification)
+        const shouldShowReady = currentAppTab === 'ready' && ready.length > 0;
+        const shouldShowHistory = currentAppTab === 'history';
+        
+        if (shouldShowReady || shouldShowHistory) {
             footer.classList.remove('footer-hidden');
         } else {
             footer.classList.add('footer-hidden');
         }
     }
 
-    // 6. Render Cards
+    // 6. Render Cards or Table
     if (displayCodes.length === 0) {
         storesContainer.innerHTML = `
             <div class="empty-state">
@@ -830,7 +893,57 @@ function renderStoreCards() {
                 <div class="empty-text">${searchQuery ? 'Gak nemu toko yang cocok bro...' : 'Tab ini kosong melompong bro!'}</div>
             </div>
         `;
+    } else if (currentAppTab === 'history') {
+        // RENDER AS TABLE FOR HISTORY
+        const wrapper = document.createElement('div');
+        wrapper.className = 'history-table-wrapper';
+        
+        let tableHtml = `
+            <table class="history-table">
+                <thead>
+                    <tr>
+                        <th style="text-align:left">Toko</th>
+                        <th>Status</th>
+                        <th>Server</th>
+                        <th>Aksi</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        displayCodes.forEach(storeCode => {
+            const state = storeStates[storeCode];
+            const storeName = state.storeData.RKMD?.NamaCustomer || state.storeData.NamaCustomer || storeCode;
+            const isSkipped = state.status === 'skipped';
+            
+            tableHtml += `
+                <tr>
+                    <td>
+                        <div class="ht-name">${storeName}</div>
+                        <div class="ht-code">${storeCode}</div>
+                    </td>
+                    <td align="center">
+                        <span class="ht-badge ${isSkipped ? 'skipped' : 'synced'}">
+                            ${isSkipped ? '❌ Skip' : '☁️ OK'}
+                        </span>
+                    </td>
+                    <td align="center">
+                        ${state.isSyncedFromServer ? 
+                            '<span class="ht-badge verified" title="Jam Out: '+ (state.serverTimeOut || '-') +'">✅ FIX</span>' : 
+                            '<span class="ht-badge pending">⏳ NO</span>'}
+                    </td>
+                    <td align="center">
+                        <button class="ht-btn-edit" onclick="reOpenStore('${storeCode}')" title="Edit/Re-upload">✏️</button>
+                    </td>
+                </tr>
+            `;
+        });
+
+        tableHtml += `</tbody></table>`;
+        wrapper.innerHTML = tableHtml;
+        storesContainer.appendChild(wrapper);
     } else {
+        // RENDER AS CARDS FOR TASKS & READY
         displayCodes.forEach(storeCode => {
             const card = createStoreCard(storeCode, storeStates[storeCode]);
             storesContainer.appendChild(card);
@@ -900,25 +1013,49 @@ function createStoreCard(storeCode, state) {
         badgeIcon = '○';
         badgeText = 'Belum Mulai';
     }
-    
+
     const storeName = state.storeData.RKMD?.NamaCustomer || state.storeData.NamaCustomer || storeCode;
+
+    // Consolidate badge info for "Clean & Simple"
+    let finalBadgeIcon = badgeIcon;
+    let finalBadgeClass = badgeClass;
+    let cardGlowClass = "";
+
+    if (state.isSyncedFromServer) {
+        finalBadgeIcon = "✅"; // Force blue checkmark
+        finalBadgeClass = "server-verified"; // CSS handle for blue color
+        cardGlowClass = "server-verified-glow"; // Neon effect
+    }
+
+    card.className = `store-card ${state.status === 'checked-out' ? 'is-complete' : ''} ${state.status === 'skipped' ? 'skipped' : ''} ${state.isSynced ? 'is-synced' : ''} ${state.status === 'checked-in' ? 'checked-in' : ''} ${state.status === 'checked-out' ? 'store-locked' : ''} ${state.isExpanded ? 'expanded' : ''} ${cardGlowClass}`;
     
+    card.setAttribute('data-status', state.status);
+    card.setAttribute('data-store', storeCode);
+    card.id = `store-card-${storeCode}`;
+
     card.innerHTML = `
         <div class="store-header" onclick="toggleStoreCard('${storeCode}')">
-            <img src="icons/store-icon.jpg" class="store-icon" alt="store">
+            <!-- Single Smart Badge as Top Right Icon of the Card -->
+            <span class="completeness-badge ${finalBadgeClass}" title="${badgeText}">${finalBadgeIcon}</span>
+            
+            <div class="store-icon-wrapper">
+                <img src="icons/store-icon.jpg" class="store-icon" alt="store">
+            </div>
+
             <div class="store-details">
                 <div class="store-name">${storeName}</div>
                 <div class="store-header-bottom">
                     <span class="store-code">${storeCode}</span>
-                    <span class="completeness-badge ${badgeClass}">${badgeIcon}<span class="badge-text">${badgeText}</span></span>
-                    ${state.isSynced ? `<button class="btn-reupload" onclick="event.stopPropagation(); reOpenStore('${storeCode}')">✏️ Edit & Re-Upload</button>` : ''}
+                    ${state.isSynced ? `
+                        <button class="btn-reupload" onclick="event.stopPropagation(); reOpenStore('${storeCode}')">
+                            ✏️ Edit & Re-Upload
+                        </button>
+                    ` : ''}
                 </div>
             </div>
-            <span class="expand-icon">▼</span>
         </div>
         <div class="store-body">
             <div class="store-content">
-                <!-- ${renderValidationSection(storeCode, state)} -->
                 ${renderGPSSection(storeCode, state)}
                 ${renderTimelineSection(storeCode, state)}
                 ${renderStockSection(storeCode, state)}
@@ -1170,10 +1307,10 @@ function initMap(storeCode) {
     storeStates[storeCode].mapInstance = map;
     storeStates[storeCode].userMarker = userMarker;
 
-    // Pastikan ukuran map pas (untuk layar HP)
+    // Pastikan ukuran map pas setelah animasi accordion selesai (CSS transition 300ms)
     setTimeout(() => {
         map.invalidateSize();
-    }, 150);
+    }, 350);
 }
 
 function renderTimelineSection(storeCode, state) {
@@ -1419,7 +1556,7 @@ function toggleSection(storeCode, section) {
                 else if (section === 'stock') target = titles[2];
 
                 if (target) {
-                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 }
             }
         }, 200);
@@ -1428,7 +1565,7 @@ function toggleSection(storeCode, section) {
         setTimeout(() => {
             const card = document.querySelector(`[data-store-code="${storeCode}"]`);
             if (card) {
-                card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                card.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
         }, 100);
     }
@@ -1483,14 +1620,20 @@ window.openImageFull = function(storeCode, category, index) {
 
 window.toggleStoreCard = function(storeCode) {
     const state = storeStates[storeCode];
-    // if (state.status === 'checked-out') return; // Allow expansion for Read-Only view
 
     const card = document.querySelector(`[data-store-code="${storeCode}"]`);
     const isExpanded = card.classList.contains('expanded');
     
     // Collapse all other cards first (Accordion style)
     document.querySelectorAll('.store-card.expanded').forEach(c => {
-        if (c !== card) c.classList.remove('expanded');
+        if (c !== card) {
+            c.classList.remove('expanded');
+            // update state as well
+            const cCode = c.dataset.storeCode;
+            if (cCode && storeStates[cCode]) {
+                storeStates[cCode].isExpanded = false;
+            }
+        }
     });
 
     if (isExpanded) {
@@ -1500,15 +1643,15 @@ window.toggleStoreCard = function(storeCode) {
         // FOCUS BACK TO CARD when collapsing main card
         setTimeout(() => {
             card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }, 100);
+        }, 350);
     } else {
         card.classList.add('expanded');
         state.isExpanded = true;
         
-        // Auto-scroll ke card yang baru dibuka (Smooth & Sat-set)
+        // Wait for other cards to fully collapse before scrolling to this one
         setTimeout(() => {
-            card.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }, 150); 
+            card.scrollIntoView({ behavior: 'smooth', block: 'start' }); // Keep start for main card opening, it works better
+        }, 350); 
 
         // Initialize Map when expanded
         setTimeout(() => initMap(storeCode), 100);
@@ -1822,10 +1965,14 @@ async function handlePhotoUpload(storeCode, category, files, maxFiles) {
         try {
             const compressed = await compressImage(file);
             const thumbnail = await generateThumbnail(file);
+            // Buat versi HD (Blob) untuk dikirim ke Telegram
+            let telegramBlob = null;
+            try { telegramBlob = await compressImageHD(file); } catch(e) { console.warn('HD compress skip:', e); }
             processedPhotos.push({
                 filename: generatePhotoFilename(),
                 base64: compressed,
                 thumbnail: thumbnail,
+                telegramBlob: telegramBlob, // HD Blob untuk Telegram
                 timestamp: new Date()
             });
         } catch (err) {
@@ -2068,6 +2215,71 @@ function buildPhotoPayload(storeCode, state) {
 }
 
 // ============================================
+// TELEGRAM BOT REPORTER
+// ============================================
+
+/**
+ * Kirim foto HD satu store ke grup Telegram.
+ * Dipanggil fire-and-forget (nggak ngeblok upload server).
+ */
+async function sendStorePhotosToTelegram(storeCode, state) {
+    if (typeof TELEGRAM_ENABLED === 'undefined' || !TELEGRAM_ENABLED) return;
+    if (typeof TELEGRAM_BOT_TOKEN === 'undefined' || TELEGRAM_BOT_TOKEN.includes('ISI_')) return;
+
+    const storeName = state.storeData?.NamaCustomer || state.storeData?.RKMD?.NamaCustomer || storeCode;
+    const checkIn  = state.checkInTime  ? new Date(state.checkInTime).toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit' }) : '-';
+    const checkOut = state.checkOutTime ? new Date(state.checkOutTime).toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit' }) : '-';
+
+    // Kumpulkan semua blob HD dari semua kategori
+    const blobs = [];
+    ['checkin', 'before', 'after'].forEach(cat => {
+        (state.photos[cat] || []).forEach(p => {
+            if (p.telegramBlob) blobs.push({ blob: p.telegramBlob, category: cat, filename: p.filename });
+        });
+    });
+
+    if (blobs.length === 0) return; // Tidak ada foto, skip
+
+    const apiBase = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
+    const caption = `📍 *${storeName}* (${storeCode})\n🕐 Check-In: ${checkIn} | Check-Out: ${checkOut}`;
+
+    // Telegram sendMediaGroup max 10 foto, split jika lebih
+    const chunks = [];
+    for (let i = 0; i < blobs.length; i += 10) chunks.push(blobs.slice(i, i + 10));
+
+    for (let c = 0; c < chunks.length; c++) {
+        const chunk = chunks[c];
+        const formData = new FormData();
+        formData.append('chat_id', TELEGRAM_CHAT_ID);
+        formData.append('parse_mode', 'Markdown');
+
+        const media = chunk.map((item, idx) => {
+            const fieldName = `photo_${idx}`;
+            formData.append(fieldName, item.blob, item.filename);
+            return {
+                type: 'photo',
+                media: `attach://${fieldName}`,
+                // Caption hanya di foto pertama chunk pertama
+                ...(c === 0 && idx === 0 ? { caption, parse_mode: 'Markdown' } : {})
+            };
+        });
+        formData.append('media', JSON.stringify(media));
+
+        try {
+            const res = await fetch(`${apiBase}/sendMediaGroup`, { method: 'POST', body: formData });
+            if (!res.ok) {
+                const err = await res.json();
+                console.warn(`Telegram sendMediaGroup gagal (chunk ${c+1}):`, err.description);
+            } else {
+                console.log(`✅ Telegram: ${chunk.length} foto terkirim untuk ${storeCode} (chunk ${c+1})`);
+            }
+        } catch(e) {
+            console.warn('Telegram fetch error:', e);
+        }
+    }
+}
+
+// ============================================
 // DUAL-API UPLOAD LOGIC
 // ============================================
 async function handleDualApiUpload() {
@@ -2145,6 +2357,9 @@ async function handleDualApiUpload() {
             state.status = 'checked-out';
             saveSession(); 
             successStores++;
+
+            // Fire-and-forget ke Telegram (nggak ngeblok, gagal pun ga masalah)
+            sendStorePhotosToTelegram(storeCode, state).catch(e => console.warn('Telegram skip:', e));
         } catch (error) {
             console.error(`Upload failed for ${storeCode}:`, error);
             hasError = true;
@@ -2161,6 +2376,13 @@ async function handleDualApiUpload() {
     btnUpload.disabled = false;
     btnUpload.innerHTML = '<span class="btn-icon">🚀</span> Upload to Server';
     updateStoresCount(); 
+
+    // --- AUTO VERIFICATION ---
+    if (successStores > 0 && VERIFICATION_ENABLED) {
+        setTimeout(() => {
+            runAutoVerification(false);
+        }, 1500); // Tunggu sebentar biar server SIAP-nya napas dulu
+    }
 }
 
 function showUploadModalResult(successCount, totalCount, hasError, errorMessage) {
@@ -2314,6 +2536,239 @@ function updateStoresCount() {
     if (btnUpload) {
         btnUpload.disabled = ready === 0;
         btnUpload.style.opacity = ready === 0 ? '0.45' : '1';
+    }
+}
+
+
+
+// ============================================
+// SERVER VERIFICATION MODULE (SIAP SCRAPING)
+// ============================================
+
+/**
+ * Melakukan login ke sistem SIAP Cimory untuk mendapatkan session cookie.
+ */
+async function loginToCimorySIAP() {
+    if (!VERIFICATION_ENABLED || !SIAP_USERNAME || !SIAP_PASSWORD) {
+        console.warn("[VERIFY] Konfigurasi login SIAP belum lengkap.");
+        return false;
+    }
+
+    try {
+        console.log("[VERIFY] Mencoba login ke SIAP Cimory...");
+        
+        // STEP 1: Ambil halaman login dulu buat nyolong nilai "ip" (Hidden field)
+        // Tambah cache-buster biar ga kena cache CORS lama bro
+        const loginPageUrl = getDmsUrl(`/siap/Login?_=${Date.now()}`);
+        const getLoginRes = await fetch(loginPageUrl, { credentials: 'include' });
+        const loginHtml = await getLoginRes.text();
+        
+        // Scraping nilai IP dari <input type="hidden" name="ip" value="...">
+        const ipMatch = loginHtml.match(/name=["']ip["']\s+value=["']([^"']+)["']/i);
+        const ipValue = ipMatch ? ipMatch[1] : "";
+        
+        console.log(`[VERIFY] Hidden IP found: ${ipValue || "not found"}`);
+
+        // STEP 2: Tembak endpoint logincek yang bener
+        const logincekUrl = getDmsUrl("/siap/Login/logincek");
+        
+        // Encode payload login (Urutan IP dulu baru username sesuai test.py)
+        const params = new URLSearchParams();
+        if (ipValue) params.append('ip', ipValue);
+        params.append('username', SIAP_USERNAME);
+        params.append('password', SIAP_PASSWORD);
+
+        const response = await fetch(logincekUrl, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Referer': 'https://siap.cimory.com/siap/Login'
+            },
+            body: params,
+            redirect: 'follow', // Kita ikutin alurnya
+            credentials: 'include'
+        });
+
+        if (!response.ok) throw new Error(`Login failed: ${response.status}`);
+        
+        // Deteksi login berhasil (Nyontek Python): 
+        // 1. Cek URL tujuan (Redirect)
+        // 2. Cek Header 'Refresh' (Sering dipake SIAP)
+        // 3. Cek isi HTML
+        const finalUrl = response.url;
+        const refreshHeader = response.headers.get('Refresh') || "";
+        const html = await response.text();
+        
+        const isSuccess = finalUrl.includes('/siap/Home') || 
+                          refreshHeader.includes('Home') ||
+                          html.includes('welcome') || 
+                          html.includes('Home') || 
+                          html.includes('Beranda');
+
+        if (isSuccess) {
+            console.log("[VERIFY] Login SIAP Berhasil! ✅");
+            return true;
+        } else {
+            console.error("[VERIFY] Login SIAP Gagal: Username/Password salah atau di-reject server.");
+            // Log tambahan buat debug di konsol user
+            console.log("[DEBUG] Final URL:", finalUrl);
+            console.log("[DEBUG] Refresh Header:", refreshHeader);
+            return false;
+        }
+    } catch (err) {
+        console.error("[VERIFY] Error saat login SIAP:", err);
+        return false;
+    }
+}
+
+/**
+ * Mengambil data verifikasi (scraping) dari halaman Detail Visit MDS.
+ */
+async function fetchServerVerificationData() {
+    // 1. Ambil Kode MDS dari file RKM atau local storage
+    let mdsCode = rkmData?.RKMHeader?.KodeMerchandiser?.trim();
+    if (!mdsCode) {
+        console.warn("[VERIFY] Kode MDS tidak ditemukan di file RKM.");
+        return null;
+    }
+
+    try {
+        // Format tanggal hari ini (YYYY-MM-DD buat endpoint fetch)
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        const todayStr = `${yyyy}-${mm}-${dd}`;
+
+        console.log(`[VERIFY] Menarik data verifikasi untuk MDS ${mdsCode} tanggal ${todayStr}...`);
+        
+        const url = getDmsUrl(`/siap/visitmds/fetch`);
+        
+        // Payload sesuai riset network log
+        const params = new URLSearchParams();
+        params.append('limit', '50');
+        params.append('start', '0');
+        params.append('kode_mds', mdsCode);
+        params.append('tanggal_rkm', todayStr);
+        params.append('asiscode', ASIS_CODE || 'ASIS_SIAP_JKT');
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: params,
+            credentials: 'include'
+        });
+        
+        if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
+        
+        const htmlFragment = await response.text();
+        return parseVerificationHTML(htmlFragment);
+    } catch (err) {
+        console.error("[VERIFY] Error saat narik data verifikasi:", err);
+        return null;
+    }
+}
+
+/**
+ * Logika Scraping: Mencari status kunjungan dari HTML tabel SIAP.
+ */
+function parseVerificationHTML(html) {
+    const parser = new DOMParser();
+    // Bungkus fragment dalem table biar parsing valid
+    const doc = parser.parseFromString(`<table>${html}</table>`, 'text/html');
+    const verificationResults = {};
+
+    // Strategi Python: Cari semua link modal yang punya atribut data-kode_cus
+    const modalLinks = doc.querySelectorAll('a.open_modal');
+    
+    modalLinks.forEach(link => {
+        const kodeCust = link.getAttribute('data-kode_cus')?.trim();
+        if (!kodeCust) return;
+
+        // Cari baris (tr) tempat link ini berada
+        const row = link.closest('tr');
+        if (!row) return;
+
+        const cols = row.querySelectorAll('td');
+        // Biasanya Time In ada di kolom ke-4 (index 3), Time Out kolom ke-5 (index 4)
+        // Kita cari string jam (HH:mm) di semua kolom biar aman
+        let isVisited = false;
+        cols.forEach(td => {
+            const txt = td.textContent.trim();
+            if (/^\d{1,2}:\d{2}$/.test(txt)) {
+                isVisited = true;
+            }
+        });
+
+        verificationResults[kodeCust] = isVisited;
+    });
+
+    console.log(`[VERIFY] Berhasil sinkron ${Object.keys(verificationResults).length} status toko.`);
+    return verificationResults;
+}
+
+/**
+ * Fungsi utama Auto-Verification: Login -> Fetch -> Sync UI
+ */
+async function runAutoVerification(showSilence = true) {
+    if (!VERIFICATION_ENABLED) return;
+
+    const btn = document.querySelector('.btn-verify-server');
+    if (btn) {
+        btn.classList.add('loading');
+        btn.innerHTML = '<span class="btn-icon">⏳</span> Sinkronisasi Server...';
+    }
+
+    if (!showSilence) {
+        showUploadStatus('loading', '🔍 Mengverifikasi data ke server SIAP...');
+    }
+
+    try {
+        // 1. Login (Cek session)
+        const loginOk = await loginToCimorySIAP();
+        if (!loginOk) {
+            if (!showSilence) showUploadStatus('error', '❌ Verifikasi Gagal: Login SIAP Bermasalah.');
+            return;
+        }
+
+        // 2. Tarik Data
+        const serverData = await fetchServerVerificationData();
+        if (!serverData) {
+            if (!showSilence) showUploadStatus('error', '❌ Verifikasi Gagal: Data tidak bisa ditarik.');
+            return;
+        }
+
+        // 3. Update Status Lokal
+        let verifiedCount = 0;
+        Object.keys(serverData).forEach(kodeCust => {
+            if (serverData[kodeCust] && storeStates[kodeCust]) {
+                if (!storeStates[kodeCust].isSyncedFromServer) {
+                    storeStates[kodeCust].isSyncedFromServer = true;
+                    verifiedCount++;
+                }
+            }
+        });
+
+        console.log(`[VERIFY] Sinkronisasi Selesai. ${verifiedCount} toko terverifikasi oleh server.`);
+        
+        if (verifiedCount > 0) {
+            saveSession();
+            renderStoreCards();
+            if (!showSilence) showUploadStatus('success', `✅ ${verifiedCount} Toko TERVERIFIKASI oleh Server!`);
+        } else {
+            if (!showSilence) showUploadStatus('info', 'ℹ️ Data sinkron, tidak ada perubahan baru.');
+        }
+    } catch (err) {
+        console.error("[VERIFY] Error during auto-verification:", err);
+        if (!showSilence) showUploadStatus('error', '❌ Terjadi kesalahan saat sinkronisasi.');
+    } finally {
+        if (btn) {
+            btn.classList.remove('loading');
+            btn.innerHTML = '<span class="btn-icon">📡</span> Cek Verifikasi Server';
+        }
     }
 }
 
@@ -2548,39 +3003,41 @@ function processExtraCallData(payload) {
         // Cek kalau udah ada
         if (storeStates[storeCode]) return;
 
-        // Bikin state baru
+        // Bikin state baru sesuai dengan struktur RPS RKM yang baru
         storeStates[storeCode] = {
-            data: {
-                KodeCustomer: d.KodeCustomer,
-                NamaCustomer: item.NamaCustomer,
-                Alamat01: item.Alamat01,
-                Contact: d.Contact || '-',
-                Telp01: d.Telp01 || '-',
-                Latitude: d.Latitude || 0,
-                Longitude: d.Longitude || 0
-            },
+            storeData: item,
             checkInTime: null,
             checkOutTime: null,
+            gpsLat: parseFloat(d.Latitude || 0),
+            gpsLng: parseFloat(d.Longitude || 0),
             photos: { checkin: [], before: [], after: [] },
-            stock: {},
+            stockData: [], // Bakal diisi dari ListRKMStok
             status: 'pending',
-            isSynced: false,
-            openSection: null
+            isExpanded: false,
+            openSection: 'gps',
+            isSynced: false
         };
 
-        // Fill stock baseline if present
+        // Fill stock baseline if present from extra call payload
+        let stockItems = [];
         if (payload.ListRKMStok) {
-            payload.ListRKMStok.forEach(s => {
-                if (s.KodeCustomer === storeCode) {
-                    storeStates[storeCode].stock[s.KodeBarang] = {
-                        qty: 0,
-                        lastStock: s.PreviousCtn || 0,
-                        suggested: 0
+            stockItems = payload.ListRKMStok.filter(s => s.KodeCustomer === storeCode)
+                .map(s => {
+                    return {
+                        ...s,
+                        JumSatuan: 0,
+                        JumKarton: 0,
+                        JumPcsE: 0
                     };
-                }
-            });
+                });
         }
+        
+        // Panggil fungsi global stock updater biar sinkron sama stok online jika ada
+        storeStates[storeCode].stockData = stockItems;
     });
+
+    // Panggil helper ulang sinkronisasi stok
+    loadAllStockData();
 
     // Refresh UI
     renderStoreCards();
@@ -2683,3 +3140,279 @@ window.submitSkipVisit = async function() {
         btn.textContent = "SIMPAN ALASAN";
     }
 };
+
+// ============================================
+// SERVER VERIFICATION LOGIC (NEW v3.1)
+// ============================================
+
+// Fungsi buat login ke SIAP lewat Proxy
+async function loginToSiap() {
+    try {
+        console.log("[Verification] Scraping login page for hidden IP...");
+        const loginPageUrl = getDmsUrl("/siap/Login");
+        
+        // Coba ambil cookie lama dari storage kalo ada
+        let currentSiapCookie = localStorage.getItem('SIAP_MANUAL_COOKIE') || "";
+
+        const getLoginRes = await fetch(loginPageUrl, { 
+            headers: { 
+                'X-Cookie': currentSiapCookie
+            },
+            credentials: 'include' 
+        });
+        
+        // Simpan cookie baru kalo ada dari header X-Set-Cookie
+        const setCookieManual = getLoginRes.headers.get('X-Set-Cookie');
+        if (setCookieManual) {
+            currentSiapCookie = updateManualCookie(currentSiapCookie, setCookieManual);
+            localStorage.setItem('SIAP_MANUAL_COOKIE', currentSiapCookie);
+        }
+
+        const loginHtml = await getLoginRes.text();
+        
+        // Cari field IP (Hidden)
+        const ipMatch = loginHtml.match(/name=["']ip["']\s+value=["']([^"']+)["']/i);
+        const ipValue = ipMatch ? ipMatch[1] : "172.71.81.27";
+        console.log("[Verification] Found IP:", ipValue);
+
+        const urlLoginCek = getDmsUrl("/siap/Login/logincek");
+        const payload = new URLSearchParams();
+        payload.append('ip', ipValue);
+        payload.append('username', getSiapCredentials().username);
+        payload.append('password', getSiapCredentials().password);
+
+        const response = await fetch(urlLoginCek, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-Cookie': currentSiapCookie 
+            },
+            body: payload,
+            redirect: 'follow',
+            credentials: 'include' 
+        });
+
+        const refreshHeader = response.headers.get('Refresh');
+        const finalUrl = response.url;
+        const html = await response.text();
+        
+        // Update cookie lagi dari logincek
+        const setCookieLogin = response.headers.get('X-Set-Cookie');
+        if (setCookieLogin) {
+            currentSiapCookie = updateManualCookie(currentSiapCookie, setCookieLogin);
+            localStorage.setItem('SIAP_MANUAL_COOKIE', currentSiapCookie);
+        }
+
+        if (refreshHeader && refreshHeader.includes('Home')) {
+            console.log("[Verification] Follow-up Refresh header to /siap/Home...");
+            const homeRes = await fetch(getDmsUrl("/siap/Home"), { 
+                headers: { 'X-Cookie': currentSiapCookie },
+                credentials: 'include' 
+            });
+            const setCookieHome = homeRes.headers.get('X-Set-Cookie');
+            if (setCookieHome) {
+                currentSiapCookie = updateManualCookie(currentSiapCookie, setCookieHome);
+                localStorage.setItem('SIAP_MANUAL_COOKIE', currentSiapCookie);
+            }
+        }
+
+        const isSuccess = finalUrl.includes('/Home') || html.toLowerCase().includes('welcome') || (refreshHeader && refreshHeader.includes('Home'));
+        
+        if (isSuccess) {
+            console.log("[Verification] Login SIAP Berhasil! ✅");
+            return true;
+        } else {
+            console.error("[Verification] Login GAGAL (Check credentials/IP).");
+            return false;
+        }
+    } catch (err) {
+        console.error("[Verification] Login Exception:", err);
+        return false;
+    }
+}
+
+// Helper buat gabungin cookie baru ke cookie string lama
+function updateManualCookie(oldCookie, newCookieStr) {
+    const cookieMap = {};
+    
+    // Parse old
+    if (oldCookie) {
+        oldCookie.split(';').forEach(c => {
+            const [k, v] = c.split('=').map(s => s.trim());
+            if (k && v) cookieMap[k] = v;
+        });
+    }
+    
+    // Parse new (Set-Cookie format can be multiple name=value sequences)
+    if (newCookieStr) {
+        newCookieStr.split(';').forEach(c => {
+            const [k, v] = c.split('=').map(s => s.trim());
+            if (k && v && !['path', 'domain', 'samesite', 'secure', 'httponly'].includes(k.toLowerCase())) {
+                cookieMap[k] = v;
+            }
+        });
+    }
+    
+    return Object.entries(cookieMap).map(([k, v]) => `${k}=${v}`).join('; ');
+}
+
+window.syncServerVerification = async function() {
+    const btn = document.getElementById('btn-sync-server');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="btn-icon spin">🔄</span> Sedang Login...';
+    }
+
+    try {
+        // 1. LOGIN DULU BRO!
+        await loginToSiap();
+        
+        if (btn) btn.innerHTML = '<span class="btn-icon spin">🔄</span> Sedang Kroscek...';
+
+        const mdsCode = getActiveMerchandiserCode();
+        if (!mdsCode) {
+            await cimoryAlert("Gak ketemu Kode MDS-nya bro. Coba load RKM dulu!", "Gagal Verifikasi", "⚠️");
+            return;
+        }
+
+        const today = new Date().toISOString().split('T')[0];
+        const urlFetch = "https://cimory-proxy.yohandi-pratama.workers.dev/siap/visitmds/fetch";
+        const asisCode = (typeof ASIS_CODE !== 'undefined') ? ASIS_CODE : 'ASIS_SIAP_JKT';
+
+        const payload = new URLSearchParams();
+        payload.append('limit', '100'); // Naikkan limit biar aman
+        payload.append('start', '0');
+        payload.append('kode_mds', mdsCode);
+        payload.append('tanggal_rkm', today);
+        payload.append('asiscode', asisCode);
+
+        // Kasih delay dikit biar session-nya "mateng" di server
+        await new Promise(r => setTimeout(r, 1500));
+
+        // Ambil cookie manual
+        const manualCookie = localStorage.getItem('SIAP_MANUAL_COOKIE') || "";
+
+        const response = await fetch(urlFetch, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                'Referer': 'https://siap.cimory.com/siap/Visitmds',
+                'X-Cookie': manualCookie // Kirim cookie manual
+            },
+            body: payload,
+            credentials: 'include'
+        });
+
+        if (!response.ok) throw new Error("Server SIAP lagi bapuk atau proxy bermasalah.");
+
+        const htmlFragment = await response.text();
+        console.log("[Verification] Raw Response Preview:", htmlFragment.substring(0, 250));
+        
+        // Cek apakah responnya beneran data atau disuruh login lagi
+        if (htmlFragment.length < 50 || htmlFragment.includes("Login") || htmlFragment.includes("login")) {
+             console.warn("[Verification] Data kosong atau diarahkan ke Login. Mencoba paksa login ulang...");
+             // Kalo zonk, mungkin butuh login ulang yang bener-bener fresh
+        }
+        
+        const results = parseVerificationHTML(htmlFragment);
+        
+        console.log("[Verification] Found on server:", results);
+
+        // Update Store States
+        let verifiedCount = 0;
+        const localStoreCodes = Object.keys(storeStates);
+        
+        for (const storeCode of localStoreCodes) {
+            // Trim biar gak keganggu spasi dari server
+            const serverData = results.find(r => r.kode_cus.trim() === storeCode.trim());
+            
+            if (serverData) {
+                console.log(`[Verification] Match found for ${storeCode}: In=${serverData.time_in}, Out=${serverData.time_out}`);
+                
+                if (serverData.time_out !== 'N/A' && serverData.time_out !== '') {
+                    // Berhasil Verifikasi!
+                    storeStates[storeCode].isSyncedFromServer = true;
+                    storeStates[storeCode].serverTimeOut = serverData.time_out;
+                    verifiedCount++;
+                }
+            } else {
+                console.log(`[Verification] No server data for ${storeCode}`);
+            }
+        }
+
+        if (verifiedCount > 0) {
+            saveSession();
+            renderStoreCards();
+            await cimoryAlert(`Mantap bro! ${verifiedCount} toko berhasil terverifikasi sinkron sama server SIAP.`, "Sinkronisasi Berhasil", "✅");
+        } else {
+            await cimoryAlert("Belum ada data toko yang kelar (Check-Out) di server buat hari ini.", "Server Belum Update", "ℹ️");
+        }
+
+    } catch (err) {
+        console.error("[Verification] Error:", err);
+        await cimoryAlert("Gagal nembak server SIAP. Coba lagi nanti atau cek koneksi proxy lu.", "Error Koneksi", "❌");
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<span class="btn-icon">🔄</span> Cek Verifikasi Server';
+        }
+    }
+};
+
+function parseVerificationHTML(html) {
+    const parser = new DOMParser();
+    // Wrap in a div to facilitate overall selection
+    const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html');
+    const rows = doc.querySelectorAll('tr');
+    
+    const visits = [];
+    let currentIn = "N/A";
+    let currentOut = "N/A";
+    let currentName = "N/A";
+    
+    rows.forEach(row => {
+        const text = row.textContent.trim();
+        
+        // 1. Cari Customer Name
+        if (text.includes("Customer Name")) {
+            try {
+                const parts = text.split(":");
+                if (parts.length > 1) {
+                    currentName = parts[1].split("Status")[0].trim();
+                }
+            } catch(e) {}
+        }
+
+        // 2. Cari Time In
+        if (text.includes("Time In")) {
+            const match = text.match(/Time In\s*:\s*(\d{1,2}:\d{2}(:\d{2})?)/i);
+            if (match) currentIn = match[1];
+        }
+
+        // 3. Cari Time Out
+        if (text.includes("Time Out")) {
+            const match = text.match(/Time Out\s*:\s*(\d{1,2}:\d{2}(:\d{2})?)/i);
+            if (match) currentOut = match[1];
+        }
+
+        // 4. Cari Modal Link (yang berisi Kode Cus)
+        const modalLink = row.querySelector('a.open_modal');
+        if (modalLink) {
+            const kodeCus = (modalLink.getAttribute('data-kode_cus') || "").trim();
+            
+            // Cek apakah kode_cus ini sudah pernah kita catat di blok ini
+            // (Satu toko bisa punya banyak foto, kita cuma butuh sekali)
+            const existing = visits.find(v => v.kode_cus === kodeCus);
+            if (kodeCus && !existing) {
+                visits.push({
+                    kode_cus: kodeCus,
+                    cust_name: currentName,
+                    time_in: currentIn,
+                    time_out: currentOut
+                });
+            }
+        }
+    });
+    
+    return visits;
+}

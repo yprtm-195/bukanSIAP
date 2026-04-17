@@ -124,6 +124,45 @@ function compressImage(file, maxSizeKB = 1024) {
 }
 
 /**
+ * Compress image to HD Blob for Telegram (1920px, 80% quality)
+ * Returns a Blob, not base64, so it can be used with FormData directly.
+ */
+function compressImageHD(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                let width = img.width;
+                let height = img.height;
+
+                const maxWidth = 1920;
+                if (width > maxWidth) {
+                    height = Math.round((height * maxWidth) / width);
+                    width = maxWidth;
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+
+                // Output as Blob (more memory efficient than base64 for large files)
+                canvas.toBlob((blob) => {
+                    if (blob) resolve(blob);
+                    else reject(new Error('canvas.toBlob failed'));
+                }, 'image/jpeg', 0.80);
+            };
+            img.onerror = reject;
+            img.src = e.target.result;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
+/**
  * Generate 100x100 thumbnail
  */
 function generateThumbnail(file) {

@@ -2,7 +2,7 @@
   "name": "Cimory SIAP Tool",
   "short_name": "SIAP Tool",
   "description": "Multi-Store Check-in/out Tool for Cimory SIAP",
-  "start_url": "./index_v2.html",
+  "start_url": "index.html",
   "display": "standalone",
   "background_color": "#0a0e1a",
   "theme_color": "#4a9eff",
