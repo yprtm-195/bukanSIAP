@@ -1,6 +1,13 @@
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    
+    // 1. Ambil cookie dari query param (Alternatif No-Header Proxy)
+    let proxyCookie = url.searchParams.get('_cookie');
+    
+    // 2. Hapus parameter _cookie biar gak ikut dikirim ke server tujuan (Cimory)
+    url.searchParams.delete('_cookie');
+
     let targetHostname = 'dms.cimory.com';
     let targetUrl = '';
 
@@ -24,17 +31,21 @@ export default {
       targetUrl = `https://${targetHostname}${url.pathname}${url.search}`;
     }
 
-    // Ambil Origin & Requested Headers
+    // NUCLEAR PERMISSIVE CORS - Echo whatever the browser requests
     const origin = request.headers.get('Origin') || '*';
-    const reqHeaders = request.headers.get('Access-Control-Request-Headers') || 'Content-Type, Authorization, X-Requested-With, Cookie, Referer, Accept, x-cookie';
+    const requestedHeaders = request.headers.get('Access-Control-Request-Headers');
+    
+    // Use requested headers if available, otherwise fallback to our comprehensive list
+    const allowedHeaders = requestedHeaders || 'Content-Type, Authorization, X-Requested-With, Cookie, Referer, Accept, x-cookie, x-set-cookie, X-Cookie';
 
     const corsHeaders = {
       'Access-Control-Allow-Origin': origin,
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': reqHeaders,
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS, PATCH',
+      'Access-Control-Allow-Headers': allowedHeaders,
       'Access-Control-Allow-Credentials': 'true',
-      'Access-Control-Expose-Headers': 'Set-Cookie, X-Proxy-Version',
-      'X-Proxy-Version': '3.3-Ultra-CORS',
+      'Access-Control-Expose-Headers': 'Set-Cookie, X-Proxy-Version, X-Set-Cookie, x-set-cookie, content-type',
+      'Access-Control-Max-Age': '86400', // Cache preflight response for 24 hours
+      'X-Proxy-Version': '3.7-Turbo-Exposed',
     };
 
     if (request.method === 'OPTIONS') {
@@ -52,17 +63,20 @@ export default {
     });
 
 
-    // MANUAL SESSION: Jika ada X-Cookie dari browser, gunakan sebagai Cookie
-    if (request.headers.has('X-Cookie')) {
-        newHeaders.set('Cookie', request.headers.get('X-Cookie'));
+    // MANUAL SESSION: Prioritaskan cookie dari URL (_cookie), kalo gak ada baru dari X-Cookie
+    const finalCookie = proxyCookie || request.headers.get('X-Cookie');
+    
+    if (finalCookie) {
+        newHeaders.set('Cookie', finalCookie);
     }
     
     newHeaders.set('Host', targetHostname);
     
-    // Khusus SIAP, kasih referer biar gak curiga
+    // Khusus SIAP, kasih referer & User-Agent Mobile biar gak curiga
     if (targetHostname === 'siap.cimory.com') {
         const ref = url.pathname.includes('fetch') ? 'https://siap.cimory.com/siap/Visitmds' : 'https://siap.cimory.com/siap/Login';
         newHeaders.set('Referer', ref);
+        newHeaders.set('User-Agent', 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36');
     }
 
     try {
@@ -79,24 +93,28 @@ export default {
       const cleanHeaders = new Headers();
       let allCookies = [];
 
-      // Loop over all headers
+      // 1. Ambil semua header kecuali CORS bawaan & security policy
       for (const [key, value] of response.headers.entries()) {
         const k = key.toLowerCase();
-        if (k === 'set-cookie') {
-          // Normal handling
-          let newCookie = value.replace(/Domain=[^;]+;?/i, '');
-          if (!newCookie.includes('SameSite')) newCookie += '; SameSite=None; Secure';
-          cleanHeaders.append('Set-Cookie', newCookie);
-          
-          // Manual session tracking
-          const cookieNameValue = value.split(';')[0];
-          allCookies.push(cookieNameValue);
-        } else if (!k.startsWith('access-control-') && k !== 'content-security-policy') {
+        if (k !== 'set-cookie' && !k.startsWith('access-control-') && k !== 'content-security-policy') {
           cleanHeaders.set(key, value);
         }
       }
 
-      // X-Set-Cookie: Mirror cookies in a custom header so browser JS can read it
+      // 2. Ambil SEMUA Cookie pake getSetCookie (biar gak cuma dapet satu)
+      const setCookies = response.headers.getSetCookie();
+      setCookies.forEach(cookie => {
+        // Normalisasi cookie buat browser
+        let newCookie = cookie.replace(/Domain=[^;]+;?/i, '');
+        if (!newCookie.includes('SameSite')) newCookie += '; SameSite=None; Secure';
+        cleanHeaders.append('Set-Cookie', newCookie);
+        
+        // Simpan buat X-Set-Cookie (Manual tracking)
+        const cookieNameValue = cookie.split(';')[0];
+        allCookies.push(cookieNameValue);
+      });
+
+      // X-Set-Cookie: Gabungin semua cookie biar frontend bisa simpan manual
       if (allCookies.length > 0) {
           cleanHeaders.set('X-Set-Cookie', allCookies.join('; '));
       }

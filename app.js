@@ -86,13 +86,18 @@ const PROXY_URL = "https://cimory-proxy.yohandi-pratama.workers.dev"; // Cloudfl
 const DMS_BASE_URL = "https://dms.cimory.com";
 
 // Endpoint Helper (biar rapi)
-const getDmsUrl = (path) => {
+const getDmsUrl = (path, cookie = null) => {
+    let url = "";
     if (PROXY_URL && PROXY_URL.includes("workers.dev")) {
-        // Jika ada PROXY, arahkan lewat proxy
-        return `${PROXY_URL}${path}`;
+        url = `${PROXY_URL}${path}`;
+    } else {
+        url = `${DMS_BASE_URL}${path}`;
     }
-    // Fallback ke direct (untuk testing desktop dengan CORS extension)
-    return `${DMS_BASE_URL}${path}`;
+    
+    if (cookie) {
+        url += (url.includes('?') ? '&' : '?') + '_cookie=' + encodeURIComponent(cookie);
+    }
+    return url;
 };
 document.addEventListener('DOMContentLoaded', () => {
     // Tombol upload disabled by default sampai ada toko siap
@@ -2581,8 +2586,7 @@ async function loginToCimorySIAP() {
         const response = await fetch(logincekUrl, {
             method: 'POST',
             headers: { 
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Referer': 'https://siap.cimory.com/siap/Login'
+                'Content-Type': 'application/x-www-form-urlencoded'
             },
             body: params,
             redirect: 'follow', // Kita ikutin alurnya
@@ -2655,8 +2659,7 @@ async function fetchServerVerificationData() {
         const response = await fetch(url, {
             method: 'POST',
             headers: { 
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'X-Requested-With': 'XMLHttpRequest'
+                'Content-Type': 'application/x-www-form-urlencoded'
             },
             body: params,
             credentials: 'include'
@@ -3149,23 +3152,21 @@ window.submitSkipVisit = async function() {
 async function loginToSiap() {
     try {
         console.log("[Verification] Scraping login page for hidden IP...");
-        const loginPageUrl = getDmsUrl("/siap/Login");
         
         // Coba ambil cookie lama dari storage kalo ada
         let currentSiapCookie = localStorage.getItem('SIAP_MANUAL_COOKIE') || "";
 
-        const getLoginRes = await fetch(loginPageUrl, { 
-            headers: { 
-                'X-Cookie': currentSiapCookie
-            },
+        const getLoginRes = await fetch(getDmsUrl("/siap/Login", currentSiapCookie), { 
             credentials: 'include' 
         });
         
         // Simpan cookie baru kalo ada dari header X-Set-Cookie
         const setCookieManual = getLoginRes.headers.get('X-Set-Cookie');
+        console.log("[Verification] X-Set-Cookie from Login Page:", setCookieManual);
         if (setCookieManual) {
             currentSiapCookie = updateManualCookie(currentSiapCookie, setCookieManual);
             localStorage.setItem('SIAP_MANUAL_COOKIE', currentSiapCookie);
+            console.log("[Verification] Cookie updated internally.");
         }
 
         const loginHtml = await getLoginRes.text();
@@ -3181,11 +3182,10 @@ async function loginToSiap() {
         payload.append('username', getSiapCredentials().username);
         payload.append('password', getSiapCredentials().password);
 
-        const response = await fetch(urlLoginCek, {
+        const response = await fetch(getDmsUrl("/siap/Login/logincek", currentSiapCookie), {
             method: 'POST',
             headers: { 
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'X-Cookie': currentSiapCookie 
+                'Content-Type': 'application/x-www-form-urlencoded'
             },
             body: payload,
             redirect: 'follow',
@@ -3205,8 +3205,7 @@ async function loginToSiap() {
 
         if (refreshHeader && refreshHeader.includes('Home')) {
             console.log("[Verification] Follow-up Refresh header to /siap/Home...");
-            const homeRes = await fetch(getDmsUrl("/siap/Home"), { 
-                headers: { 'X-Cookie': currentSiapCookie },
+            const homeRes = await fetch(getDmsUrl("/siap/Home", currentSiapCookie), { 
                 credentials: 'include' 
             });
             const setCookieHome = homeRes.headers.get('X-Set-Cookie');
@@ -3276,7 +3275,6 @@ window.syncServerVerification = async function() {
         }
 
         const today = new Date().toISOString().split('T')[0];
-        const urlFetch = "https://cimory-proxy.yohandi-pratama.workers.dev/siap/visitmds/fetch";
         const asisCode = (typeof ASIS_CODE !== 'undefined') ? ASIS_CODE : 'ASIS_SIAP_JKT';
 
         const payload = new URLSearchParams();
@@ -3292,12 +3290,10 @@ window.syncServerVerification = async function() {
         // Ambil cookie manual
         const manualCookie = localStorage.getItem('SIAP_MANUAL_COOKIE') || "";
 
-        const response = await fetch(urlFetch, {
+        const response = await fetch(getDmsUrl("/siap/visitmds/fetch", manualCookie), {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                'Referer': 'https://siap.cimory.com/siap/Visitmds',
-                'X-Cookie': manualCookie // Kirim cookie manual
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
             },
             body: payload,
             credentials: 'include'
