@@ -407,6 +407,7 @@ async function doDownloadRKM(email) {
     
     try {
         const url = getDmsUrl("/api/sfaservice/downloadrkm");
+        console.log("[Diagnostic] Fetching RKM from:", url);
         const response = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -499,7 +500,9 @@ async function silentSyncMasterData() {
     }
     
     try {
-        const res = await fetch(GAS_API_URL, { redirect: "follow" });
+        // NEW v5.0: Call Internal Worker Bot to avoid CORS & Redirect issues
+        console.log("[Diagnostic] Syncing master data from:", `${PROXY_URL}/api/sync-rkm`);
+        const res = await fetch(`${PROXY_URL}/api/sync-rkm`);
         if(!res.ok) throw new Error("HTTP " + res.status);
         
         const json = await res.json();
@@ -3153,75 +3156,92 @@ async function loginToSiap() {
     try {
         console.log("[Verification] Scraping login page for hidden IP...");
         
-        // Coba ambil cookie lama dari storage kalo ada
         let currentSiapCookie = localStorage.getItem('SIAP_MANUAL_COOKIE') || "";
+        
+        // Tambahin cache buster (?t=...) biar gak kena cache browser/cloudflare
+        const timestamp = new Date().getTime();
+        const loginUrl = getDmsUrl("/siap/Login") + "?t=" + timestamp;
 
-        const getLoginRes = await fetch(getDmsUrl("/siap/Login", currentSiapCookie), { 
-            credentials: 'include' 
+        const getLoginRes = await fetch(loginUrl, { 
+            headers: { 'X-Cookie': currentSiapCookie }
         });
         
-        // Simpan cookie baru kalo ada dari header X-Set-Cookie
-        const setCookieManual = getLoginRes.headers.get('X-Set-Cookie');
-        console.log("[Verification] X-Set-Cookie from Login Page:", setCookieManual);
+        const proxyVersion = getLoginRes.headers.get('X-Proxy-Version');
+        const allHeaders = {};
+        getLoginRes.headers.forEach((v, k) => allHeaders[k] = v);
+
+        console.log("[Verification] Proxy Version Detected:", proxyVersion || "N/A (Check Network Tab)");
+        console.log("[Verification] Headers Received:", allHeaders);
+
+        const setCookieManual = getLoginRes.headers.get('X-Cimory-Session');
         if (setCookieManual) {
             currentSiapCookie = updateManualCookie(currentSiapCookie, setCookieManual);
             localStorage.setItem('SIAP_MANUAL_COOKIE', currentSiapCookie);
-            console.log("[Verification] Cookie updated internally.");
         }
 
         const loginHtml = await getLoginRes.text();
         
-        // Cari field IP (Hidden)
-        const ipMatch = loginHtml.match(/name=["']ip["']\s+value=["']([^"']+)["']/i);
-        const ipValue = ipMatch ? ipMatch[1] : "172.71.81.27";
-        console.log("[Verification] Found IP:", ipValue);
+        // Extract SEMUA hidden fields (jaga-jaga kalo ada token selain IP)
+        const hiddenFields = {};
+        const inputRegex = /<input[^>]+type=["']hidden["'][^>]+name=["']([^"']+)["'][^>]+value=["']([^"']*)["']/gi;
+        let match;
+        while ((match = inputRegex.exec(loginHtml)) !== null) {
+            hiddenFields[match[1]] = match[2];
+        }
 
-        const urlLoginCek = getDmsUrl("/siap/Login/logincek");
+        const ipValue = hiddenFields['ip'] || "172.71.81.27";
+        console.log("[Verification] Form Fields Found:", hiddenFields);
+
         const payload = new URLSearchParams();
         payload.append('ip', ipValue);
         payload.append('username', getSiapCredentials().username);
         payload.append('password', getSiapCredentials().password);
-
-        const response = await fetch(getDmsUrl("/siap/Login/logincek", currentSiapCookie), {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/x-www-form-urlencoded'
-            },
-            body: payload,
-            redirect: 'follow',
-            credentials: 'include' 
+        
+        // Tambahin hidden fields lain kalo ada
+        Object.keys(hiddenFields).forEach(k => {
+            if (k !== 'ip' && k !== 'username' && k !== 'password') {
+                payload.append(k, hiddenFields[k]);
+            }
         });
 
-        const refreshHeader = response.headers.get('Refresh');
+        // Kirim via Query Param biar 100% nempel di Worker
+        const logincekUrl = getDmsUrl("/siap/Login/logincek") + "?_cookie=" + encodeURIComponent(currentSiapCookie);
+
+        const response = await fetch(logincekUrl, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Referer': 'https://siap.cimory.com/siap/Login'
+            },
+            body: payload,
+            redirect: 'manual' 
+        });
+
         const finalUrl = response.url;
+        const statusCode = response.status;
+        console.log("[Verification] Logincek Status:", statusCode);
+
         const html = await response.text();
-        
+
         // Update cookie lagi dari logincek
-        const setCookieLogin = response.headers.get('X-Set-Cookie');
+        const setCookieLogin = response.headers.get('X-Cimory-Session');
         if (setCookieLogin) {
             currentSiapCookie = updateManualCookie(currentSiapCookie, setCookieLogin);
             localStorage.setItem('SIAP_MANUAL_COOKIE', currentSiapCookie);
         }
 
-        if (refreshHeader && refreshHeader.includes('Home')) {
-            console.log("[Verification] Follow-up Refresh header to /siap/Home...");
-            const homeRes = await fetch(getDmsUrl("/siap/Home", currentSiapCookie), { 
-                credentials: 'include' 
-            });
-            const setCookieHome = homeRes.headers.get('X-Set-Cookie');
-            if (setCookieHome) {
-                currentSiapCookie = updateManualCookie(currentSiapCookie, setCookieHome);
-                localStorage.setItem('SIAP_MANUAL_COOKIE', currentSiapCookie);
-            }
-        }
+        // Cari pesan error di HTML (Cimory biasanya pake alert atau div error)
+        const errorMatch = html.match(/class=["']alert[^>]*>([\s\S]*?)<\/div>/i) || html.match(/swal\(["'](.*?)["']/i);
+        const errorMsg = errorMatch ? errorMatch[1].replace(/<[^>]*>/g, '').trim() : "Tidak ada pesan error spesifik.";
 
-        const isSuccess = finalUrl.includes('/Home') || html.toLowerCase().includes('welcome') || (refreshHeader && refreshHeader.includes('Home'));
-        
+        const isSuccess = statusCode === 302 || statusCode === 301 || finalUrl.includes('/Home') || html.toLowerCase().includes('welcome');
+
         if (isSuccess) {
             console.log("[Verification] Login SIAP Berhasil! ✅");
             return true;
         } else {
-            console.error("[Verification] Login GAGAL (Check credentials/IP).");
+            console.error("[Verification] Login GAGAL. Pesan Server: " + errorMsg);
+            if (html.length < 1000) console.log("[Verification] HTML Snippet:", html);
             return false;
         }
     } catch (err) {
@@ -3234,20 +3254,29 @@ async function loginToSiap() {
 function updateManualCookie(oldCookie, newCookieStr) {
     const cookieMap = {};
     
-    // Parse old
+    // Parse old: "name=value; name2=value2"
     if (oldCookie) {
         oldCookie.split(';').forEach(c => {
-            const [k, v] = c.split('=').map(s => s.trim());
-            if (k && v) cookieMap[k] = v;
+            const parts = c.split('=');
+            if (parts.length >= 2) {
+                const k = parts[0].trim();
+                const v = parts.slice(1).join('=').trim();
+                if (k) cookieMap[k] = v;
+            }
         });
     }
     
-    // Parse new (Set-Cookie format can be multiple name=value sequences)
+    // Parse new: "ci_session=xxx; path=/; ..." atau "ci_session=xxx; other=yyy"
     if (newCookieStr) {
         newCookieStr.split(';').forEach(c => {
-            const [k, v] = c.split('=').map(s => s.trim());
-            if (k && v && !['path', 'domain', 'samesite', 'secure', 'httponly'].includes(k.toLowerCase())) {
-                cookieMap[k] = v;
+            const parts = c.split('=');
+            if (parts.length >= 2) {
+                const k = parts[0].trim();
+                const v = parts.slice(1).join('=').trim();
+                const keyLower = k.toLowerCase();
+                if (k && !['path', 'domain', 'samesite', 'secure', 'httponly', 'expires', 'max-age'].includes(keyLower)) {
+                    cookieMap[k] = v;
+                }
             }
         });
     }
@@ -3259,98 +3288,59 @@ window.syncServerVerification = async function() {
     const btn = document.getElementById('btn-sync-server');
     if (btn) {
         btn.disabled = true;
-        btn.innerHTML = '<span class="btn-icon spin">🔄</span> Sedang Login...';
+        btn.innerHTML = '<span class="btn-icon spin">🔄</span> Menghubungi Bot...';
     }
 
     try {
-        // 1. LOGIN DULU BRO!
-        await loginToSiap();
+        console.log("[Verification] Memulai sinkronisasi via Worker Bot API v5.0...");
         
-        if (btn) btn.innerHTML = '<span class="btn-icon spin">🔄</span> Sedang Kroscek...';
-
-        const mdsCode = getActiveMerchandiserCode();
-        if (!mdsCode) {
-            await cimoryAlert("Gak ketemu Kode MDS-nya bro. Coba load RKM dulu!", "Gagal Verifikasi", "⚠️");
-            return;
-        }
-
+        const credentials = getSiapCredentials();
+        const mdsCode = getActiveMerchandiserCode() || 'MDSSATMND01';
         const today = new Date().toISOString().split('T')[0];
-        const asisCode = (typeof ASIS_CODE !== 'undefined') ? ASIS_CODE : 'ASIS_SIAP_JKT';
-
-        const payload = new URLSearchParams();
-        payload.append('limit', '100'); // Naikkan limit biar aman
-        payload.append('start', '0');
-        payload.append('kode_mds', mdsCode);
-        payload.append('tanggal_rkm', today);
-        payload.append('asiscode', asisCode);
-
-        // Kasih delay dikit biar session-nya "mateng" di server
-        await new Promise(r => setTimeout(r, 1500));
-
-        // Ambil cookie manual
-        const manualCookie = localStorage.getItem('SIAP_MANUAL_COOKIE') || "";
-
-        const response = await fetch(getDmsUrl("/siap/visitmds/fetch", manualCookie), {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
-            },
-            body: payload,
-            credentials: 'include'
-        });
-
-        if (!response.ok) throw new Error("Server SIAP lagi bapuk atau proxy bermasalah.");
-
-        const htmlFragment = await response.text();
-        console.log("[Verification] Raw Response Preview:", htmlFragment.substring(0, 250));
         
-        // Cek apakah responnya beneran data atau disuruh login lagi
-        if (htmlFragment.length < 50 || htmlFragment.includes("Login") || htmlFragment.includes("login")) {
-             console.warn("[Verification] Data kosong atau diarahkan ke Login. Mencoba paksa login ulang...");
-             // Kalo zonk, mungkin butuh login ulang yang bener-bener fresh
+        // Bot bakal login & narik data sekaligus di server dengan Parameter Tanggal & MDS
+        const apiUrl = `${PROXY_URL}/api/verify-server?u=${encodeURIComponent(credentials.username)}&p=${encodeURIComponent(credentials.password)}&m=${encodeURIComponent(mdsCode)}&d=${today}`;
+
+        const response = await fetch(apiUrl);
+        const responseText = await response.text();
+        
+        let result;
+        try {
+            result = JSON.parse(responseText);
+        } catch(e) {
+            console.error("[Verification] Respon server bukan JSON!", responseText.substring(0, 500));
+            throw new Error("Server manggil tapi jawabannya HTML/Bukan JSON. Biasanya Worker crash atau kena blokir.");
         }
         
-        const results = parseVerificationHTML(htmlFragment);
-        
-        console.log("[Verification] Found on server:", results);
-
-        // Update Store States
-        let verifiedCount = 0;
-        const localStoreCodes = Object.keys(storeStates);
-        
-        for (const storeCode of localStoreCodes) {
-            // Trim biar gak keganggu spasi dari server
-            const serverData = results.find(r => r.kode_cus.trim() === storeCode.trim());
+        if (result.status === 'success') {
+            const visits = result.data; // Ini udah Array JSON hasil kroscek di server
+            console.log(`[Verification] Data Server Berhasil Ditarik: ${visits.length} record.`);
             
-            if (serverData) {
-                console.log(`[Verification] Match found for ${storeCode}: In=${serverData.time_in}, Out=${serverData.time_out}`);
-                
-                if (serverData.time_out !== 'N/A' && serverData.time_out !== '') {
-                    // Berhasil Verifikasi!
-                    storeStates[storeCode].isSyncedFromServer = true;
-                    storeStates[storeCode].serverTimeOut = serverData.time_out;
-                    verifiedCount++;
+            let matchedCount = 0;
+            // Sinkronkan ke Status Toko Lokal
+            for (let code in storeStates) {
+                // Cari kecocokan Kode Toko
+                const serverRecord = visits.find(v => v.KodeCustomer && v.KodeCustomer.trim() === code.trim());
+                if (serverRecord) {
+                    storeStates[code].isSyncedFromServer = true;
+                    matchedCount++;
                 }
-            } else {
-                console.log(`[Verification] No server data for ${storeCode}`);
             }
-        }
 
-        if (verifiedCount > 0) {
             saveSession();
             renderStoreCards();
-            await cimoryAlert(`Mantap bro! ${verifiedCount} toko berhasil terverifikasi sinkron sama server SIAP.`, "Sinkronisasi Berhasil", "✅");
+            
+            await cimoryAlert(`Sinkronisasi Selesai!\n${matchedCount} Toko terverifikasi di server SIAP.`, "Verified", "✅");
         } else {
-            await cimoryAlert("Belum ada data toko yang kelar (Check-Out) di server buat hari ini.", "Server Belum Update", "ℹ️");
+            throw new Error(result.message || "Gagal Login / Tarik Data");
         }
-
     } catch (err) {
         console.error("[Verification] Error:", err);
-        await cimoryAlert("Gagal nembak server SIAP. Coba lagi nanti atau cek koneksi proxy lu.", "Error Koneksi", "❌");
+        await cimoryAlert("Gagal sinkron server: " + err.message, "Sync Failed", "❌");
     } finally {
         if (btn) {
             btn.disabled = false;
-            btn.innerHTML = '<span class="btn-icon">🔄</span> Cek Verifikasi Server';
+            btn.innerHTML = '<span class="btn-icon">☁️</span> Cek Verifikasi Server';
         }
     }
 };
