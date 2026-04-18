@@ -8,6 +8,8 @@
 let rkmData = null; // Original full data from server/file
 let storeStates = {}; // Persisted state { storeCode: { checkInTime, photos, etc } }
 let currentAppTab = 'tasks'; // Default tab: 'tasks', 'ready', 'history'
+let lastServerSyncTime = 0; // Waktu terakhir sinkron server (ms)
+const SYNC_COOLDOWN = 180000; // 3 menit cooldown buat auto-sync (ms)
 
 // Initialize Tabs on Load
 window.switchTab = function(tabId) {
@@ -20,13 +22,15 @@ window.switchTab = function(tabId) {
         }
     }
 
-    // Update UI active state
-    document.querySelectorAll('.tab-item').forEach(tab => {
+    // Update UI active state (mendukung kedua sistem tab di index.html)
+    document.querySelectorAll('.tab-item, .nav-tab').forEach(tab => {
         tab.classList.remove('active');
         const text = tab.textContent.toLowerCase();
-        if (tabId === 'tasks' && text.includes('tugas')) tab.classList.add('active');
-        if (tabId === 'ready' && text.includes('siap')) tab.classList.add('active');
-        if (tabId === 'history' && text.includes('selesai')) tab.classList.add('active');
+        const dataTab = tab.getAttribute('data-tab');
+        
+        if ((tabId === 'tasks' || dataTab === 'all') && (text.includes('tugas') || text.includes('semua'))) tab.classList.add('active');
+        if ((tabId === 'ready' || dataTab === 'pending') && (text.includes('siap') || text.includes('belum'))) tab.classList.add('active');
+        if ((tabId === 'history' || tabId === 'completed' || dataTab === 'completed') && (text.includes('selesai'))) tab.classList.add('active');
     });
 
     // Toggle FAB Visibility (Hanya muncul di tab Tugas)
@@ -39,15 +43,20 @@ window.switchTab = function(tabId) {
         }
     }
 
-    // Toggle Server Verification Action Visibility (In Footer)
-    const verifyAction = document.getElementById('verify-action-container');
+    // Toggle Upload Button Visibility
     const uploadBtn = document.getElementById('btn-upload');
+    const isSelesaiTab = (tabId === 'history' || tabId === 'completed');
     
-    if (tabId === 'history') {
-        if (verifyAction) verifyAction.classList.remove('hidden');
+    if (isSelesaiTab) {
         if (uploadBtn) uploadBtn.classList.add('hidden');
+        
+        // AUTO-TRIGGER: Sinkronkan otomatis pas tab Selesai dibuka
+        const now = Date.now();
+        if (now - lastServerSyncTime > SYNC_COOLDOWN) {
+            console.log("[Auto-Sync] Tab Selesai dibuka (" + tabId + "), menjalankan sinkronisasi...");
+            syncServerVerification(true); // true = auto mode
+        }
     } else {
-        if (verifyAction) verifyAction.classList.add('hidden');
         if (uploadBtn) uploadBtn.classList.remove('hidden');
     }
 
@@ -1384,6 +1393,11 @@ function renderTimelineSection(storeCode, state) {
                         ${checkInDisabled ? 'disabled' : ''}>
                         ${state.checkInTime ? '✅ ' + fmtTime(state.checkInTime) : (isSkipped ? '❌ SKIPPED' : '▶ IN')}
                     </button>
+                    ${state.status === 'checked-in' ? `
+                        <button class="btn-edit-checkin" onclick="resetCheckIn('${storeCode}')" title="Edit Jam Check-In">
+                            ✏️
+                        </button>
+                    ` : ''}
                     ${state.status === 'ready' ? `
                         <button class="btn-skip-visit" onclick="openSkipModal('${storeCode}')" title="Mark as Not Visited">
                             ❌ Tidak dikunjungi
@@ -1801,6 +1815,18 @@ function handleCheckIn(storeCode) {
     updateStoresCount();
     saveSession();
 }
+
+window.resetCheckIn = function(storeCode) {
+    const state = storeStates[storeCode];
+    if (!state || state.status !== 'checked-in') return;
+    
+    state.checkInTime = null;
+    state.status = 'ready';
+    refreshStoreCard(storeCode);
+    updateStoresCount();
+    saveSession();
+    console.log(`[CheckIn] Reset check-in untuk ${storeCode}`);
+};
 
 async function handleCheckOut(storeCode) {
     const state = storeStates[storeCode];
@@ -3284,15 +3310,16 @@ function updateManualCookie(oldCookie, newCookieStr) {
     return Object.entries(cookieMap).map(([k, v]) => `${k}=${v}`).join('; ');
 }
 
-window.syncServerVerification = async function() {
-    const btn = document.getElementById('btn-sync-server');
-    if (btn) {
-        btn.disabled = true;
-        btn.innerHTML = '<span class="btn-icon spin">🔄</span> Menghubungi Bot...';
-    }
-
+window.syncServerVerification = async function(isAuto = false) {
+    const overlay = document.getElementById('sync-overlay');
+    const statusText = document.getElementById('sync-status-text');
+    
     try {
         console.log("[Verification] Memulai sinkronisasi via Worker Bot API v5.0...");
+        
+        // Tampilkan Overlay (Premium Feel)
+        if (overlay) overlay.classList.remove('hidden');
+        if (statusText) statusText.innerText = isAuto ? "Auto-Sync: Menghubungi Bot..." : "Menghubungi Bot Cimory...";
         
         const credentials = getSiapCredentials();
         const mdsCode = getActiveMerchandiserCode() || 'MDSSATMND01';
@@ -3330,18 +3357,22 @@ window.syncServerVerification = async function() {
             saveSession();
             renderStoreCards();
             
-            await cimoryAlert(`Sinkronisasi Selesai!\n${matchedCount} Toko terverifikasi di server SIAP.`, "Verified", "✅");
+            lastServerSyncTime = Date.now(); // Update cooldown
+            
+            if (!isAuto) {
+                await cimoryAlert(`Sinkronisasi Selesai!\n${matchedCount} Toko terverifikasi di server SIAP.`, "Verified", "✅");
+            }
         } else {
             throw new Error(result.message || "Gagal Login / Tarik Data");
         }
     } catch (err) {
         console.error("[Verification] Error:", err);
-        await cimoryAlert("Gagal sinkron server: " + err.message, "Sync Failed", "❌");
-    } finally {
-        if (btn) {
-            btn.disabled = false;
-            btn.innerHTML = '<span class="btn-icon">☁️</span> Cek Verifikasi Server';
+        // Kalau auto-sync gagal, diam aja (silent-fail) biar ga ganggu
+        if (!isAuto) {
+            await cimoryAlert("Gagal sinkron server: " + err.message, "Sync Failed", "❌");
         }
+    } finally {
+        if (overlay) overlay.classList.add('hidden');
     }
 };
 

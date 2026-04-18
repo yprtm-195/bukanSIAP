@@ -2824,6 +2824,27 @@ select:focus {
     box-shadow: 0 4px 15px rgba(231, 76, 60, 0.3);
 }
 
+/* Tombol Edit Jam Check-In */
+.btn-edit-checkin {
+    background: rgba(210, 153, 34, 0.12);
+    color: var(--accent-warning);
+    border: 1px solid rgba(210, 153, 34, 0.35);
+    padding: 6px 10px;
+    border-radius: 10px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.btn-edit-checkin:hover {
+    background: var(--accent-warning);
+    color: #0d1117;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(210, 153, 34, 0.35);
+}
+
 .btn-cancel {
     background: rgba(255, 255, 255, 0.05);
     color: #fff;
@@ -3360,4 +3381,120 @@ select:focus {
     background: var(--accent-primary);
     color: white;
     border-color: var(--accent-primary);
+}
+
+/* ============================================
+   PREMIUM SYNC OVERLAY (GLASSMORPHISM)
+   ============================================ */
+.sync-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(13, 17, 23, 0.85);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    transition: opacity 0.4s ease;
+}
+
+.sync-overlay.hidden {
+    opacity: 0;
+    pointer-events: none;
+    display: none !important;
+}
+
+.sync-content {
+    text-align: center;
+    padding: var(--space-xl);
+    background: rgba(22, 27, 34, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 24px;
+    box-shadow: var(--shadow-lg), 0 0 40px rgba(88, 166, 255, 0.1);
+    animation: slideInUpSync 0.5s cubic-bezier(0.19, 1, 0.22, 1);
+    width: 90%;
+    max-width: 320px;
+}
+
+.sync-loader-pulse {
+    position: relative;
+    width: 80px;
+    height: 80px;
+    margin: 0 auto var(--space-lg);
+}
+
+.sync-loader-pulse::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: var(--accent-primary);
+    border-radius: 50%;
+    opacity: 0.1;
+    animation: pulseSync 2s infinite;
+}
+
+.sync-spinner {
+    width: 100%;
+    height: 100%;
+    border: 3px solid rgba(88, 166, 255, 0.1);
+    border-top: 3px solid var(--accent-primary);
+    border-radius: 50%;
+    animation: spinSync 1s linear infinite;
+}
+
+.sync-title {
+    font-size: 1.2rem;
+    font-weight: 700;
+    margin-bottom: var(--space-xs);
+    color: var(--text-primary);
+}
+
+.sync-status {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-bottom: var(--space-lg);
+}
+
+.sync-progress-track {
+    width: 100%;
+    height: 4px;
+    background: var(--bg-tertiary);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.sync-progress-fill {
+    height: 100%;
+    width: 30%;
+    background: var(--accent-primary);
+    border-radius: 2px;
+    animation: progressFlowSync 3s infinite ease-in-out;
+}
+
+@keyframes pulseSync {
+    0% { transform: scale(0.8); opacity: 0.1; }
+    50% { transform: scale(1.5); opacity: 0.2; }
+    100% { transform: scale(0.8); opacity: 0.1; }
+}
+
+@keyframes progressFlowSync {
+    0% { transform: translateX(-100%); width: 30%; }
+    50% { width: 60%; }
+    100% { transform: translateX(330%); width: 30%; }
+}
+
+@keyframes slideInUpSync {
+    from { opacity: 0; transform: translateY(30px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes spinSync {
+    to { transform: rotate(360deg); }
 }
