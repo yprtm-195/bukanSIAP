@@ -170,7 +170,7 @@ async function cacheImage(url) {
 async function getCachedImage(url) {
     try {
         const db = await initImageCache();
-        const transaction = db.transaction([IMAGE_CACHE_STORE], 'readonly');
+        const transaction = db.transaction([IMAGE_CACHE_STORE], 'readwrite');
         const store = transaction.objectStore(IMAGE_CACHE_STORE);
         const request = store.get(url);
 

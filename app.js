@@ -53,8 +53,14 @@ window.switchTab = function(tabId) {
         // AUTO-TRIGGER: Sinkronkan otomatis pas tab Selesai dibuka
         const now = Date.now();
         if (now - lastServerSyncTime > SYNC_COOLDOWN) {
-            console.log("[Auto-Sync] Tab Selesai dibuka (" + tabId + "), menjalankan sinkronisasi...");
-            syncServerVerification(true); // true = auto mode
+            if (navigator.onLine) {
+                console.log("[Auto-Sync] Tab Selesai dibuka (" + tabId + "), menjalankan sinkronisasi...");
+                syncServerVerification(true).catch(e => {
+                    console.warn("[Auto-Sync] Gagal Sinkron (Non-critical):", e.message);
+                });
+            } else {
+                console.warn("[Auto-Sync] Offline, sinkronisasi dibatalkan.");
+            }
         }
     } else {
         if (uploadBtn) uploadBtn.classList.remove('hidden');
@@ -227,26 +233,35 @@ function initIndexedDB() {
 }
 
 // Session Management
+let saveSessionTimeout = null;
 async function saveSession() {
     if (!photoDB || !rkmData) return;
-    
-    const tx = photoDB.transaction(STORE_SESSION, 'readwrite');
-    const store = tx.objectStore(STORE_SESSION);
-    
-    store.put({ key: 'rkmData', value: rkmData });
-    
-    // Strip non-serializable properties (Leaflet map/marker instances) before saving
-    const serializableStates = {};
-    for (const code in storeStates) {
-        const { mapInstance, userMarker, ...rest } = storeStates[code];
-        serializableStates[code] = rest;
-    }
-    store.put({ key: 'storeStates', value: serializableStates });
-    store.put({ key: 'lastUpdated', value: Date.now() });
-    
-    console.log('Session saved to IndexedDB');
-}
 
+    // Debounce: Tunggu 500ms sebelum beneran simpan
+    if (saveSessionTimeout) clearTimeout(saveSessionTimeout);
+
+    saveSessionTimeout = setTimeout(async () => {
+        try {
+            const tx = photoDB.transaction(STORE_SESSION, 'readwrite');
+            const store = tx.objectStore(STORE_SESSION);
+
+            store.put({ key: 'rkmData', value: rkmData });
+
+            // Strip non-serializable properties (Leaflet map/marker instances) before saving
+            const serializableStates = {};
+            for (const code in storeStates) {
+                const { mapInstance, userMarker, ...rest } = storeStates[code];
+                serializableStates[code] = rest;
+            }
+            store.put({ key: 'storeStates', value: serializableStates });
+            store.put({ key: 'lastUpdated', value: Date.now() });
+
+            console.log('✅ Session saved to IndexedDB (Debounced)');
+        } catch (err) {
+            console.error('❌ Failed to save session:', err);
+        }
+    }, 500);
+}
 async function checkAndRestoreSession() {
     if (!photoDB) return;
     
@@ -902,7 +917,7 @@ function renderStoreCards() {
         }
     }
 
-    // 6. Render Cards or Table
+    // 6. Render Cards (WhatsApp Style for all tabs)
     if (displayCodes.length === 0) {
         storesContainer.innerHTML = `
             <div class="empty-state">
@@ -910,57 +925,8 @@ function renderStoreCards() {
                 <div class="empty-text">${searchQuery ? 'Gak nemu toko yang cocok bro...' : 'Tab ini kosong melompong bro!'}</div>
             </div>
         `;
-    } else if (currentAppTab === 'history') {
-        // RENDER AS TABLE FOR HISTORY
-        const wrapper = document.createElement('div');
-        wrapper.className = 'history-table-wrapper';
-        
-        let tableHtml = `
-            <table class="history-table">
-                <thead>
-                    <tr>
-                        <th style="text-align:left">Toko</th>
-                        <th>Status</th>
-                        <th>Server</th>
-                        <th>Aksi</th>
-                    </tr>
-                </thead>
-                <tbody>
-        `;
-
-        displayCodes.forEach(storeCode => {
-            const state = storeStates[storeCode];
-            const storeName = state.storeData.RKMD?.NamaCustomer || state.storeData.NamaCustomer || storeCode;
-            const isSkipped = state.status === 'skipped';
-            
-            tableHtml += `
-                <tr>
-                    <td>
-                        <div class="ht-name">${storeName}</div>
-                        <div class="ht-code">${storeCode}</div>
-                    </td>
-                    <td align="center">
-                        <span class="ht-badge ${isSkipped ? 'skipped' : 'synced'}">
-                            ${isSkipped ? '❌ Skip' : '☁️ OK'}
-                        </span>
-                    </td>
-                    <td align="center">
-                        ${state.isSyncedFromServer ? 
-                            '<span class="ht-badge verified" title="Jam Out: '+ (state.serverTimeOut || '-') +'">✅ FIX</span>' : 
-                            '<span class="ht-badge pending">⏳ NO</span>'}
-                    </td>
-                    <td align="center">
-                        <button class="ht-btn-edit" onclick="reOpenStore('${storeCode}')" title="Edit/Re-upload">✏️</button>
-                    </td>
-                </tr>
-            `;
-        });
-
-        tableHtml += `</tbody></table>`;
-        wrapper.innerHTML = tableHtml;
-        storesContainer.appendChild(wrapper);
     } else {
-        // RENDER AS CARDS FOR TASKS & READY
+        // RENDER AS CARDS FOR ALL TABS
         displayCodes.forEach(storeCode => {
             const card = createStoreCard(storeCode, storeStates[storeCode]);
             storesContainer.appendChild(card);
@@ -984,90 +950,71 @@ function updateTabBadge(tabId, count) {
 function createStoreCard(storeCode, state) {
     const card = document.createElement('div');
     const isSkipped = state.status === 'skipped';
-    card.className = `store-card ${state.status === 'checked-out' ? 'store-locked' : ''} ${isSkipped ? 'skipped' : ''} ${state.isSynced ? 'is-synced' : ''}`;
-    card.dataset.storeCode = storeCode;
-    card.dataset.status = state.status; // Biar CSS bisa kasih warna aksen
-    
-    // Get validation status
     const validation = validateStoreCompleteness(storeCode);
-    
-    // Determine single consolidated badge
-    let badgeClass, badgeIcon, badgeText;
-    
-    // Priority 1: Server Status (Checked Out)
-    if (state.status === 'checked-out') {
-        if (state.isSynced) {
-            badgeClass = 'completeness-complete';
-            badgeIcon = '☁️';
-            badgeText = 'Terupload';
-        } else {
-            badgeClass = 'completeness-complete';
-            badgeIcon = '✓';
-            badgeText = 'Siap Upload';
-        }
-    } 
-    // Priority 2: Server Status (Checked In)
-    else if (state.status === 'checked-in') {
-        badgeClass = 'completeness-warning';
-        badgeIcon = '⏳';
-        badgeText = 'Sedang Isi';
-    } 
-    // Priority 3: Local Validation (Incomplete)
-    else if (!validation.isComplete) {
-        badgeClass = 'completeness-incomplete';
-        badgeIcon = '⚠';
-        badgeText = 'Belum Lengkap';
-    } 
-    // Priority 4: Skipped (Not Visited)
-    else if (state.status === 'skipped') {
-        badgeClass = 'status-tag skipped';
-        badgeIcon = '❌';
-        badgeText = 'Skil / Dilewati';
-    }
-    // Priority 5: Default (Not Started)
-    else {
-        badgeClass = 'status-ready';
-        badgeIcon = '○';
-        badgeText = 'Belum Mulai';
-    }
-
     const storeName = state.storeData.RKMD?.NamaCustomer || state.storeData.NamaCustomer || storeCode;
-
-    // Consolidate badge info for "Clean & Simple"
-    let finalBadgeIcon = badgeIcon;
-    let finalBadgeClass = badgeClass;
-    let cardGlowClass = "";
-
-    if (state.isSyncedFromServer) {
-        finalBadgeIcon = "✅"; // Force blue checkmark
-        finalBadgeClass = "server-verified"; // CSS handle for blue color
-        cardGlowClass = "server-verified-glow"; // Neon effect
+    
+    // 1. WhatsApp Icons (The Checks)
+    let statusIcon = '';
+    if (state.status === 'checked-out') {
+        if (state.isSynced || state.isSyncedFromServer) {
+            // Ceklis Dua Biru: Sudah masuk database server
+            statusIcon = '<span style="color: #34B7F1; font-size: 16px; margin-right: 4px;">✓✓</span>';
+        } else {
+            // Ceklis Satu Abu: Selesai di HP, tapi belum Upload
+            statusIcon = '<span style="color: var(--wa-text-secondary); font-size: 16px; margin-right: 4px;">✓</span>';
+        }
+    } else if (state.status === 'checked-in') {
+        // Sedang dikerjakan
+        statusIcon = '<span style="color: var(--wa-text-secondary); font-size: 14px; margin-right: 4px;">⏳</span>';
+    } else if (state.status === 'skipped') {
+        // Dilewati
+        statusIcon = '<span style="color: #f85149; font-size: 14px; margin-right: 4px;">❌</span>';
     }
 
-    card.className = `store-card ${state.status === 'checked-out' ? 'is-complete' : ''} ${state.status === 'skipped' ? 'skipped' : ''} ${state.isSynced ? 'is-synced' : ''} ${state.status === 'checked-in' ? 'checked-in' : ''} ${state.status === 'checked-out' ? 'store-locked' : ''} ${state.isExpanded ? 'expanded' : ''} ${cardGlowClass}`;
-    
-    card.setAttribute('data-status', state.status);
-    card.setAttribute('data-store', storeCode);
+    // 2. Unread Dot (Simple green dot for incomplete tasks)
+    let unreadDot = '';
+    if (!validation.isComplete && state.status !== 'skipped' && state.status !== 'checked-out') {
+        unreadDot = `<div class="wa-unread-dot"></div>`;
+    }
+
+    // 3. Time / Status Label (Top Right)
+    let timeLabel = '';
+    if (state.checkInTime) {
+        const date = new Date(state.checkInTime);
+        timeLabel = date.getHours().toString().padStart(2, '0') + ':' + date.getMinutes().toString().padStart(2, '0');
+    } else if (state.status === 'skipped') {
+        timeLabel = 'Dilewati';
+    }
+
+    const initials = storeName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+
+    card.className = `store-card ${state.status === 'checked-out' ? 'is-complete' : ''} ${state.status === 'skipped' ? 'skipped' : ''} ${state.isExpanded ? 'expanded' : ''}`;
+    card.dataset.storeCode = storeCode;
     card.id = `store-card-${storeCode}`;
 
     card.innerHTML = `
         <div class="store-header" onclick="toggleStoreCard('${storeCode}')">
-            <!-- Single Smart Badge as Top Right Icon of the Card -->
-            <span class="completeness-badge ${finalBadgeClass}" title="${badgeText}">${finalBadgeIcon}</span>
-            
             <div class="store-icon-wrapper">
-                <img src="icons/store-icon.jpg" class="store-icon" alt="store">
+                <div class="store-icon" style="background: #6a7175; color: white; display: flex; align-items: center; justify-content: center; font-weight: 500; font-size: 20px;">
+                    ${initials}
+                </div>
             </div>
 
             <div class="store-details">
-                <div class="store-name">${storeName}</div>
-                <div class="store-header-bottom">
-                    <span class="store-code">${storeCode}</span>
-                    ${state.isSynced ? `
-                        <button class="btn-reupload" onclick="event.stopPropagation(); reOpenStore('${storeCode}')">
-                            ✏️ Edit & Re-Upload
-                        </button>
-                    ` : ''}
+                <div class="store-name-row" style="display: flex; justify-content: space-between; align-items: baseline;">
+                    <div class="store-name">${storeName}</div>
+                    <div class="store-time" style="font-size: 12px; color: ${unreadDot ? 'var(--wa-green-light)' : 'var(--wa-text-secondary)'};">${timeLabel}</div>
+                </div>
+                <div class="store-msg-row" style="display: flex; justify-content: space-between; align-items: center; margin-top: 2px;">
+                    <div class="store-last-msg" style="display: flex; align-items: center; color: var(--wa-text-secondary); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                        ${statusIcon} <span>${storeCode}</span>
+                        ${(state.isSynced || state.isSyncedFromServer) ? `
+                            <span style="font-style: italic; font-size: 11px; margin-left: 6px; color: var(--wa-green-light); opacity: 0.8;">
+                                • Sudah masuk Cimory SIAP
+                            </span>
+                        ` : ''}
+                    </div>
+                    ${unreadDot}
                 </div>
             </div>
         </div>
@@ -1165,21 +1112,21 @@ function renderGPSSection(storeCode, state) {
     const defaultLat = state.storeData.RKMD.Latitude;
     const defaultLng = state.storeData.RKMD.Longitude;
     const isGPSValid = state.gpsLat !== parseFloat(defaultLat) || state.gpsLng !== parseFloat(defaultLng);
-    const validClass = isGPSValid ? '' : 'section-incomplete';
-
+    
     const open = (state.openSection === 'gps');
 
     return `
-        <div class="card-section">
+        <div class="wa-date-separator">
+            <span class="wa-date-label">📍 Titik Lokasi</span>
+        </div>
+        <div class="card-section ${!isGPSValid ? 'section-incomplete' : ''}">
             <div class="section-accordion-title" onclick="toggleSection('${storeCode}', 'gps')">
-                <span>📍 GPS Coordinates
-                    ${!isGPSValid ? '<span class="section-warning-icon">⚠</span>' : '<span class="section-ok-icon">✅</span>'}
-                </span>
+                <span>📍 Koordinat & Maps</span>
                 <span class="section-chevron ${open ? '' : 'collapsed'}">▾</span>
             </div>
             <div class="section-accordion-body ${open ? '' : 'collapsed'}">
-                <div class="gps-display-row" style="margin-bottom: 12px; font-size: 13px; color: var(--text-secondary);">
-                    <span>Titik Koordinat: <strong id="gps-text-${storeCode}" style="color: var(--text-primary); font-family: monospace;">${state.gpsLat}, ${state.gpsLng}</strong></span>
+                <div class="gps-display-row" style="margin-bottom: 12px; font-size: 13px; color: var(--wa-text-secondary);">
+                    <span>Koordinat: <strong id="gps-text-${storeCode}" style="color: var(--wa-text-primary); font-family: monospace;">${state.gpsLat}, ${state.gpsLng}</strong></span>
                 </div>
                 <div class="gps-controls">
                     <button class="btn-secondary" onclick="useDeviceGPS('${storeCode}')" ${disabledAttr}>
@@ -1356,24 +1303,42 @@ function renderTimelineSection(storeCode, state) {
         return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
     };
 
-    // Helper for thumbnails
-    const renderThumbnails = (arr, category) => {
-        return arr.map((p, idx) => `
+    // Helper for thumbnails with "Add" button inside grid
+    const renderPhotoGrid = (arr, category) => {
+        let gridHtml = arr.map((p, idx) => `
             <div class="photo-thumbnail-wrapper">
                 <img src="${p.thumbnail}" class="photo-thumbnail" alt="foto" onclick="openImageFull('${storeCode}', '${category}', ${idx})" />
                 ${isReadOnly ? '' : `<button class="photo-delete-btn" onclick="removePhoto('${storeCode}', '${category}', ${idx})" title="Hapus Foto">×</button>`}
             </div>
         `).join('');
+
+        // Add the "plus" slot if not readonly and checkin max 1
+        const isMaxCheckin = (category === 'checkin' && arr.length >= 1);
+        const maxFiles = category === 'checkin' ? 1 : 20;
+
+        if (!isReadOnly && !isSkipped && !isMaxCheckin) {
+            gridHtml += `
+                <label class="photo-add-slot">
+                    <input type="file" accept="image/*" ${category !== 'checkin' ? 'multiple' : ''} 
+                           onchange="handlePhotoUpload('${storeCode}', '${category}', this.files, ${maxFiles})" 
+                           style="display:none;">
+                    <span class="plus-icon">+</span>
+                    <span class="plus-text">Foto</span>
+                </label>
+            `;
+        }
+        return gridHtml;
     };
 
     const open = (state.openSection === 'timeline');
 
     return `
-        <div class="card-section ${validClass}">
+        <div class="wa-date-separator">
+            <span class="wa-date-label">📸 Timeline & Foto</span>
+        </div>
+        <div class="card-section wa-outgoing ${!isComplete || !isPhotoComplete ? 'section-incomplete' : ''}">
             <div class="section-accordion-title" onclick="toggleSection('${storeCode}', 'timeline')">
-                <span>⏰ Visit Timeline
-                    ${!isComplete ? '<span class="section-warning-icon">⚠</span>' : '<span class="section-ok-icon">✅</span>'}
-                </span>
+                <span>⏰ Waktu Visit & Dokumentasi</span>
                 <span class="section-chevron ${open ? '' : 'collapsed'}">▾</span>
             </div>
             <div class="section-accordion-body ${open ? '' : 'collapsed'}">
@@ -1386,6 +1351,12 @@ function renderTimelineSection(storeCode, state) {
                         <input type="text" class="time-input-simple time-input-hh time-input-checkin-hh" placeholder="HH" inputmode="numeric" maxlength="2" value="${fmtTime(state.checkInTime).split(':')[0] || ''}" ${checkInDisabled ? 'disabled' : ''} onkeydown="handleEnterAsTab(event)" onkeypress="handleEnterAsTab(event)" oninput="autoFocusNext(this)" onfocus="this.select()">
                         <span class="time-input-separator">:</span>
                         <input type="text" class="time-input-simple time-input-mm time-input-checkin-mm" placeholder="mm" inputmode="numeric" maxlength="2" value="${fmtTime(state.checkInTime).split(':')[1] || ''}" ${checkInDisabled ? 'disabled' : ''} onkeydown="handleEnterAsTab(event)" onkeypress="handleEnterAsTab(event)" onfocus="this.select()">
+                        
+                        ${state.status === 'checked-in' ? `
+                            <button class="btn-edit-checkin" onclick="resetCheckIn('${storeCode}')" title="Edit Jam Check-In" style="background:transparent; border:none; padding: 0 5px; margin-left: 5px; cursor:pointer; font-size: 14px;">
+                                ✏️
+                            </button>
+                        ` : ''}
                     </div>
                     <button
                         class="btn-checkin"
@@ -1393,11 +1364,6 @@ function renderTimelineSection(storeCode, state) {
                         ${checkInDisabled ? 'disabled' : ''}>
                         ${state.checkInTime ? '✅ ' + fmtTime(state.checkInTime) : (isSkipped ? '❌ SKIPPED' : '▶ IN')}
                     </button>
-                    ${state.status === 'checked-in' ? `
-                        <button class="btn-edit-checkin" onclick="resetCheckIn('${storeCode}')" title="Edit Jam Check-In">
-                            ✏️
-                        </button>
-                    ` : ''}
                     ${state.status === 'ready' ? `
                         <button class="btn-skip-visit" onclick="openSkipModal('${storeCode}')" title="Mark as Not Visited">
                             ❌ Tidak dikunjungi
@@ -1424,13 +1390,7 @@ function renderTimelineSection(storeCode, state) {
                         <div class="timeline-photo-item">
                             <label class="timeline-photo-label">Check-In</label>
                             <div class="photo-gallery-container">
-                                ${photos.checkin.length === 0 ? `
-                                    <label class="custom-file-btn" ${isReadOnly ? 'style="opacity:.4;pointer-events:none;"' : ''}>
-                                        <span>📷</span>
-                                        <span>Pilih</span>
-                                        <input type="file" accept="image/*" onchange="handlePhotoUpload('${storeCode}', 'checkin', this.files, 1)" ${photoDisabled} hidden>
-                                    </label>
-                                ` : renderThumbnails(photos.checkin, 'checkin')}
+                                ${renderPhotoGrid(photos.checkin, 'checkin')}
                             </div>
                         </div>
 
@@ -1438,14 +1398,7 @@ function renderTimelineSection(storeCode, state) {
                         <div class="timeline-photo-item">
                             <label class="timeline-photo-label">Before</label>
                             <div class="photo-gallery-container">
-                                ${renderThumbnails(photos.before, 'before')}
-                                ${(!isReadOnly && photos.before.length < 20) ? `
-                                    <label class="custom-file-btn">
-                                        <span>📷</span>
-                                        <span>+ Foto</span>
-                                        <input type="file" accept="image/*" multiple onchange="handlePhotoUpload('${storeCode}', 'before', this.files, 20)" ${photoDisabled} hidden>
-                                    </label>
-                                ` : ''}
+                                ${renderPhotoGrid(photos.before, 'before')}
                             </div>
                         </div>
 
@@ -1453,14 +1406,7 @@ function renderTimelineSection(storeCode, state) {
                         <div class="timeline-photo-item">
                             <label class="timeline-photo-label">After</label>
                             <div class="photo-gallery-container">
-                                ${renderThumbnails(photos.after, 'after')}
-                                ${(!isReadOnly && photos.after.length < 20) ? `
-                                    <label class="custom-file-btn">
-                                        <span>📷</span>
-                                        <span>+ Foto</span>
-                                        <input type="file" accept="image/*" multiple onchange="handlePhotoUpload('${storeCode}', 'after', this.files, 20)" ${photoDisabled} hidden>
-                                    </label>
-                                ` : ''}
+                                ${renderPhotoGrid(photos.after, 'after')}
                             </div>
                         </div>
                     </div>
@@ -1527,14 +1473,17 @@ function renderStockSection(storeCode, state) {
         .join('');
     
     return `
-        <div class="card-section">
+        <div class="wa-date-separator">
+            <span class="wa-date-label">📦 Laporan Stok</span>
+        </div>
+        <div class="card-section wa-outgoing">
             <div class="section-accordion-title" onclick="toggleSection('${storeCode}', 'stock')">
-                <span>📦 Stock Opname (${state.stockData.length} items)</span>
+                <span>📦 Stok Opname (${state.stockData.length} Produk)</span>
                 <span class="section-chevron ${open ? '' : 'collapsed'}">▾</span>
             </div>
             <div class="section-accordion-body ${open ? '' : 'collapsed'}">
                 <div class="stock-list">
-                    ${stockList || '<p style="color: var(--text-muted); text-align: center;">No items found in RKM</p>'}
+                    ${stockList || '<p style="color: rgba(255,255,255,0.4); text-align: center;">Tidak ada data stok</p>'}
                 </div>
             </div>
         </div>

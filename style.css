@@ -24,6 +24,15 @@
     
     --border-default: #30363d;
     --border-muted: #21262d;
+
+    /* WhatsApp Dark Theme Colors */
+    --wa-bg: #111b21;
+    --wa-header: #202c33;
+    --wa-card-hover: #2a3942;
+    --wa-text-primary: #e9edef;
+    --wa-text-secondary: #8696a0;
+    --wa-green: #00a884;
+    --wa-green-light: #06d755;
     
     /* Shadows */
     --shadow-sm: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
@@ -94,7 +103,8 @@ body {
     flex: 1;
     min-height: 0; /* Important for flex child scrolling */
     overflow-y: auto; /* Scrollable area */
-    padding: var(--space-md);
+    padding: 0; /* WA List style uses zero padding for container */
+    background: var(--wa-bg);
     scroll-behavior: smooth;
     -webkit-overflow-scrolling: touch;
     width: 100%;
@@ -122,14 +132,14 @@ body {
    ============================================ */
 .app-header {
     flex-shrink: 0;
-    background: var(--bg-secondary);
-    border-bottom: 1px solid var(--border-default);
-    padding: var(--space-sm) var(--space-md);
+    background: var(--wa-header);
+    color: var(--wa-text-primary);
+    padding: 16px 16px 4px 16px;
     display: flex;
     flex-direction: column;
-    gap: var(--space-xs);
+    gap: 12px;
     z-index: 50;
-    box-shadow: var(--shadow-sm);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
 .header-top {
@@ -598,52 +608,48 @@ body {
    ============================================ */
 .tab-navigation {
     display: flex;
-    background: rgba(22, 27, 34, 0.8);
-    backdrop-filter: blur(10px);
-    border-bottom: 1px solid var(--border-default);
+    background: var(--wa-header);
     position: sticky;
-    top: 60px; /* Below header */
+    top: 0;
     z-index: 100;
-    margin-top: 5px;
+    border-bottom: none;
+    margin-top: 0;
 }
 
 .tab-item {
     flex: 1;
     text-align: center;
-    padding: 14px 5px;
-    font-size: 13px;
+    padding: 12px 0;
+    font-size: 14px;
     font-weight: 700;
-    color: var(--text-secondary);
+    color: var(--wa-text-secondary);
     cursor: pointer;
-    transition: all var(--transition-fast);
+    transition: all 0.2s ease;
     position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 6px;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
 }
 
 .tab-item:hover {
-    color: var(--text-primary);
-    background: rgba(255, 255, 255, 0.03);
+    color: var(--wa-text-primary);
 }
 
 .tab-item.active {
-    color: var(--accent-primary);
+    color: var(--wa-green);
 }
 
 .tab-item.active::after {
     content: '';
     position: absolute;
-    bottom: -1px;
-    left: 20%;
-    right: 20%;
-    height: 3px;
-    background: var(--accent-primary);
-    border-radius: 3px 3px 0 0;
-    box-shadow: 0 -2px 10px var(--accent-primary);
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 3.5px;
+    background: var(--wa-green);
+    border-radius: 0;
 }
 
 .tab-badge {
@@ -670,171 +676,108 @@ body {
 }
 
 .store-card {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-default);
-    border-radius: 16px;
+    background: var(--wa-bg);
+    border-bottom: none;
     overflow: hidden;
-    box-shadow: var(--shadow-sm);
-    transition: all var(--transition-base);
+    transition: background 0.1s ease;
     display: flex;
     flex-direction: column;
     position: relative;
-    scroll-margin-top: 130px; 
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(8px);
+    scroll-margin-top: 100px;
 }
 
-.store-badges-container {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    align-items: flex-end;
-    z-index: 5;
+.store-card:active {
+    background: var(--wa-card-hover);
 }
 
 /* Expanded card spans full width */
 .store-card.expanded {
-    border-color: var(--accent-primary);
-}
-
-.store-card:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 12px 24px rgba(0,0,0,0.3);
-    border-color: var(--accent-primary);
-}
-
-.store-card.expanded:hover {
-    transform: none; /* Don't lift expanded cards */
-}
-
-/* Status Accents (Calm but visible) */
-.store-card[data-status="checked-in"] { border-color: rgba(210, 153, 34, 0.4); }
-.store-card[data-status="skipped"] { border-color: rgba(248, 81, 73, 0.4); }
-.store-card[data-status="complete"] { border-color: rgba(63, 185, 80, 0.4); }
-
-/* Clean Server Verified Effect: Blue Neon Glow */
-.store-card.server-verified-glow {
-    border-color: #58a6ff !important;
-    box-shadow: 0 0 15px rgba(88, 166, 255, 0.3), var(--shadow-md);
-    animation: glowPulse 3s infinite;
-}
-
-@keyframes glowPulse {
-    0% { box-shadow: 0 0 5px rgba(88, 166, 255, 0.2), var(--shadow-sm); }
-    50% { box-shadow: 0 0 18px rgba(88, 166, 255, 0.5), var(--shadow-md); }
-    100% { box-shadow: 0 0 5px rgba(88, 166, 255, 0.2), var(--shadow-sm); }
+    background: var(--wa-header); /* Slightly lighter dark for expanded */
 }
 
 .store-header {
     display: flex;
-    flex-direction: row; 
+    flex-direction: row;
     align-items: center;
-    justify-content: flex-start;
-    padding: 16px 20px;
+    padding: 0 0 0 16px; /* Padding left for avatar */
     cursor: pointer;
     user-select: none;
-    transition: all var(--transition-fast);
     gap: 12px;
     position: relative;
-    text-align: left;
-    min-height: auto;
-}
-
-.store-header:hover {
-    background: rgba(88, 166, 255, 0.03);
-}
-
-/* Expanded style */
-.store-card.expanded .store-header {
-    padding: 16px 20px;
 }
 
 .store-icon-wrapper {
     position: relative;
-    display: inline-block;
+    flex-shrink: 0;
+    padding: 10px 0;
 }
 
 .store-icon {
     width: 52px;
     height: 52px;
-    border-radius: 14px;
+    border-radius: 50%;
     object-fit: cover;
-    flex-shrink: 0;
-    transition: transform var(--transition-base);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    border: 1px solid rgba(255,255,255,0.1);
-}
-
-.store-card.expanded .store-icon {
-    width: 40px;
-    height: 40px;
     box-shadow: none;
+    border: none;
 }
 
 .store-details {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    justify-content: center;
+    padding: 12px 16px 12px 4px;
     flex: 1;
     min-width: 0;
-    align-items: flex-start;
-}
-
-.store-card.expanded .store-details {
-    align-items: flex-start;
-    gap: 2px;
+    border-bottom: 1px solid rgba(134, 150, 160, 0.15); /* Divider tipis ala WA */
 }
 
 .store-name {
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--text-primary);
-    word-wrap: break-word;
-    overflow-wrap: break-word;
-    word-break: break-word;
-    line-height: 1.3;
-    max-width: 100%;
-    margin-top: 4px;
-}
-
-.store-card.expanded .store-name {
-    font-size: 15px;
-    white-space: normal;
+    font-size: 17px;
+    font-weight: 400;
+    color: var(--wa-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.2;
 }
 
 .store-header-bottom {
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 8px;
-    flex-wrap: wrap; /* in case screen is very small */
-}
-
-.store-card.expanded .store-header-bottom {
-    flex-direction: row;
-    align-items: center;
-    gap: 12px;
+    gap: 4px;
 }
 
 .store-code {
-    font-size: 10px;
-    font-weight: 800;
-    color: var(--text-secondary);
-    letter-spacing: 0.5px;
-    background: rgba(255, 255, 255, 0.05);
-    padding: 1px 6px;
-    border-radius: 4px;
+    font-size: 14px;
+    color: var(--wa-text-secondary);
+    background: none;
+    padding: 0;
+    border-radius: 0;
 }
 
-/* Unified Status Badge: Minimalist corner dot/icon */
+/* Status Badge dipindah ke pojok kanan atas ala jam WA */
 .completeness-badge {
     position: absolute;
-    top: 12px;
-    right: 12px;
-    width: 24px;
+    top: 14px;
+    right: 16px;
+    font-size: 12px;
+    color: var(--wa-text-secondary);
+}
+
+.store-card.expanded .completeness-badge {
+    display: none; /* Sembunyikan kalau lagi expand biar ga ganggu area input */
+}
+
+/* WhatsApp Style Unread Dot */
+.wa-unread-dot {
+    background-color: var(--wa-green-light);
+    border-radius: 50%;
+    width: 10px;
+    height: 10px;
+    margin-left: 8px;
+    flex-shrink: 0;
+}    width: 24px;
     height: 24px;
     border-radius: 50%;
     font-size: 11px;
@@ -1025,30 +968,75 @@ body {
     max-height: 0;
     overflow: hidden;
     transition: max-height var(--transition-slow);
+    background-color: #0b141a; /* Background chat WA asli */
+    background-image: url("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png"); /* WA Background Pattern */
+    background-blend-mode: overlay;
+    background-size: 400px;
+    opacity: 0.9;
 }
 
 .store-card.expanded .store-body {
-    max-height: 2000px;
+    max-height: 5000px; /* Diperbesar buat stok yang banyak */
 }
 
 .store-content {
-    padding: 0 var(--space-sm) var(--space-md);
+    padding: 16px;
     display: flex;
     flex-direction: column;
-    gap: var(--space-md);
+    gap: 12px;
 }
 
-/* ============================================
-   CARD SECTIONS
-   ============================================ */
-.card-section {
-    border: 1px solid var(--border-muted);
+/* WhatsApp Style Section Separator (Like Date) */
+.wa-date-separator {
+    display: flex;
+    justify-content: center;
+    margin: 8px 0;
+}
+
+.wa-date-label {
+    background: #182229;
+    color: #8696a0;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 5px 12px;
     border-radius: 8px;
-    padding: var(--space-sm);
-    background: var(--bg-tertiary);
-    overflow: hidden;
+    text-transform: uppercase;
+    box-shadow: 0 1px 1px rgba(0,0,0,0.2);
 }
 
+/* WhatsApp Message Bubble Style */
+.card-section {
+    background: #202c33;
+    border: none;
+    border-radius: 8px;
+    padding: 10px;
+    position: relative;
+    max-width: 90%;
+    align-self: flex-start; /* Default ala pesan masuk */
+    box-shadow: 0 1px 1px rgba(0,0,0,0.2);
+    color: var(--wa-text-primary);
+}
+
+/* Bubble Chat Style: Pesan Keluar (Greenish) */
+.card-section.wa-outgoing {
+    background: #005c4b;
+    align-self: flex-end;
+}
+
+.section-accordion-title {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--wa-green-light);
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+}
+
+.card-section.wa-outgoing .section-accordion-title {
+    color: #d9fdd3;
+}
 .card-section-title {
     font-size: 14px;
     font-weight: 600;
@@ -1349,9 +1337,10 @@ body {
 }
 
 .timeline-photo-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 10px;
+    display: flex;
+    flex-direction: column; /* Stack vertikal biar lega */
+    gap: 16px;
+    margin-top: 10px;
 }
 
 .timeline-photo-item {
@@ -1363,11 +1352,27 @@ body {
 
 .timeline-photo-label {
     font-size: 11px;
-    color: var(--text-muted);
-    text-align: center;
+    color: #8696a0; /* WA Secondary Text */
+    text-align: left; /* Rata kiri biar lebih natural */
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+}
+
+.photo-gallery-container {
+    width: 100%;
+    display: flex;
+    flex-direction: row; /* Biar foto nyamping (scrollable) */
+    gap: 12px;
+    overflow-x: auto;
+    padding-bottom: 5px;
+    -webkit-overflow-scrolling: touch;
+}
+
+.photo-thumbnail-wrapper, .photo-add-slot {
+    flex: 0 0 75px; /* Lebar tetep biar ga gepeng */
+    width: 75px;
+    height: 75px;
 }
 
 /* Standard Photo UI Container (Combined thumbnails and add button) */
@@ -1454,6 +1459,38 @@ body {
     z-index: 5;
 }
 
+/* WhatsApp Style Photo Add Slot */
+.photo-add-slot {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    border: 2px dashed rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.photo-add-slot:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: var(--wa-green-light);
+}
+
+.plus-icon {
+    font-size: 20px;
+    color: var(--wa-green-light);
+    line-height: 1;
+}
+
+.plus-text {
+    font-size: 10px;
+    color: var(--wa-text-secondary);
+    margin-top: 2px;
+}
+
 .photo-delete-btn {
     position: absolute;
     top: -4px;
@@ -1505,21 +1542,161 @@ body {
     padding-top: 15vh;
 }
 
-@keyframes modalFadeIn {
-    from { opacity: 0; }
-    to   { opacity: 1; }
+/* WhatsApp Style Confirmation Dialog (Checkout Modal) */
+#checkout-modal .modal-container {
+    background: #232d36; /* WA Dark Dialog Background */
+    border-radius: 24px; /* More rounded like modern WA */
+    width: 85%;
+    max-width: 320px;
+    margin: auto;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    border: none;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    padding: 24px;
+    animation: modalPop 0.2s ease-out;
 }
 
-.modal-container {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-default);
-    border-radius: 16px 16px 0 0;
-    width: 100%;
-    max-width: 480px;
-    max-height: 90vh;
-    overflow-y: auto;
-    animation: modalSlideUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-    box-shadow: 0 -8px 40px rgba(0,0,0,0.5);
+@keyframes modalPop {
+    from { transform: translate(-50%, -50%) scale(0.9); opacity: 0; }
+    to { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+}
+
+#checkout-modal .modal-header {
+    background: transparent;
+    padding: 0;
+    margin-bottom: 16px;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+#checkout-modal .modal-title {
+    font-size: 18px;
+    font-weight: 500;
+    color: var(--wa-text-primary);
+}
+
+#checkout-modal .modal-close-btn {
+    display: none; /* WA Dialog ga pake tombol X di pojok */
+}
+
+#checkout-modal .modal-body {
+    padding: 0;
+    color: var(--wa-text-secondary);
+    font-size: 15px;
+    line-height: 1.4;
+}
+
+#checkout-modal .checkout-modal-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 16px 0;
+    background: rgba(255, 255, 255, 0.05);
+    padding: 12px;
+    border-radius: 12px;
+}
+
+#checkout-modal .modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 16px;
+    margin-top: 24px;
+    padding: 0;
+}
+
+#checkout-modal .btn-confirm {
+    background: transparent !important;
+    color: var(--wa-green) !important;
+    font-weight: 600 !important;
+    padding: 8px 12px !important;
+    font-size: 14px !important;
+    text-transform: uppercase;
+}
+
+#checkout-modal .btn-cancel {
+    background: transparent !important;
+    color: var(--wa-text-secondary) !important;
+    font-weight: 600 !important;
+    padding: 8px 12px !important;
+    font-size: 14px !important;
+    text-transform: uppercase;
+}
+
+/* WhatsApp Style Barcode Viewer */
+#barcode-modal .modal-container {
+    background: #000000;
+    max-height: 100vh;
+    height: 100vh;
+    max-width: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    border-radius: 0;
+    border: none;
+}
+
+#barcode-modal .modal-header {
+    background: rgba(0, 0, 0, 0.5);
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 10;
+}
+
+.barcode-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+#barcode-image {
+    background: white;
+    padding: 10px;
+    border-radius: 4px;
+    margin: 20px 0;
+}
+
+.barcode-nav-buttons {
+    position: absolute;
+    bottom: 40px;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: space-between;
+    padding: 0 30px;
+    align-items: center;
+}
+
+#barcode-counter {
+    color: white;
+    font-size: 14px;
+    background: rgba(255, 255, 255, 0.1);
+    padding: 4px 12px;
+    border-radius: 12px;
+}
+
+.barcode-btn {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    border: none;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+}
+
+.barcode-btn:disabled {
+    opacity: 0.2;
 }
 
 @keyframes modalSlideUp {
@@ -2458,31 +2635,31 @@ select:focus {
    LIVE SEARCH BAR
    ============================================ */
 .search-bar-container {
-    padding: 6px 0 4px;
+    padding: 8px 16px;
     width: 100%;
-    border-top: 1px solid var(--border-muted);
+    background: var(--wa-header);
+    border: none;
 }
 
 .search-bar-inner {
     display: flex;
     align-items: center;
-    gap: 8px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-default);
-    border-radius: 10px;
-    padding: 7px 12px;
-    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+    gap: 12px;
+    background: #2a3942; /* WA Search Background */
+    border: none;
+    border-radius: 20px; /* Pill Shape */
+    padding: 8px 16px;
+    transition: background 0.2s ease;
 }
 
 .search-bar-inner:focus-within {
-    border-color: var(--accent-primary);
-    box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15);
+    background: #32444d;
 }
 
 .search-icon {
     font-size: 14px;
-    flex-shrink: 0;
-    opacity: 0.6;
+    color: #8696a0;
+    opacity: 0.8;
 }
 
 .search-input {
@@ -2490,17 +2667,23 @@ select:focus {
     background: transparent;
     border: none;
     outline: none;
-    color: var(--text-primary);
-    font-size: 13px;
-    font-family: inherit;
-    min-width: 0;
+    color: var(--wa-text-primary);
+    font-size: 15px;
+    padding: 0;
 }
 
 .search-input::placeholder {
-    color: var(--text-muted);
+    color: #8696a0;
 }
 
 .search-clear-btn {
+    background: transparent;
+    border: none;
+    color: #8696a0;
+    cursor: pointer;
+    font-size: 16px;
+    padding: 0 4px;
+}
     display: none;
     align-items: center;
     justify-content: center;
@@ -3167,7 +3350,7 @@ select:focus {
 }
 
 /* ============================================
-   FLOATING ACTION BUTTON (FAB)
+   FLOATING ACTION BUTTON (FAB) - WhatsApp Style
    ============================================ */
 .fab-btn {
     position: fixed;
@@ -3176,22 +3359,141 @@ select:focus {
     width: 60px;
     height: 60px;
     border-radius: 50%;
-    background: var(--accent-primary);
+    background: var(--wa-green);
     color: white;
     font-size: 28px;
     border: none;
-    box-shadow: 0 4px 15px rgba(88, 166, 255, 0.4);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 8000;
-    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
-.fab-btn:hover {
-    transform: scale(1.1) translateY(-2px);
-    box-shadow: 0 6px 20px rgba(88, 166, 255, 0.6);
+.fab-btn:active {
+    transform: scale(0.9);
+    background: #008f6f;
+}
+
+/* Fix Categories Grid (Pricetag Modal) */
+#categories-grid {
+    display: flex !important;
+    flex-direction: column !important; /* Tumpuk ke bawah */
+    gap: 0 !important; /* Rapat ala list WA */
+    width: 100% !important;
+}
+
+.category-card {
+    display: flex !important;
+    flex-direction: row !important; /* Ikon kiri, teks kanan */
+    align-items: center !important;
+    padding: 12px 16px !important;
+    gap: 16px !important;
+    width: 100% !important;
+    background: transparent !important;
+    border-bottom: 1px solid rgba(134, 150, 160, 0.1) !important;
+    cursor: pointer;
+    box-sizing: border-box !important;
+}
+
+.category-card img {
+    width: 48px !important;
+    height: 48px !important;
+    min-width: 48px !important;
+    border-radius: 50% !important;
+    margin: 0 !important;
+    object-fit: cover !important;
+}
+
+.category-card h3 {
+    font-size: 16px !important;
+    font-weight: 400 !important;
+    color: var(--wa-text-primary) !important;
+    margin: 0 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+
+/* Fix Products List (Pricetag Selection Modal) */
+#products-list {
+    display: flex !important;
+    flex-direction: column !important; /* Satu kolom wajib */
+    width: 100% !important;
+    padding: 0 !important;
+    gap: 0 !important;
+}
+
+.product-item {
+    display: flex !important;
+    flex-direction: row !important; /* Ikon kiri, teks kanan */
+    align-items: center !important;
+    padding: 12px 16px !important;
+    gap: 16px !important;
+    width: 100% !important;
+    background: transparent !important; /* Hapus background lama */
+    border: none !important; /* Hapus border kotak */
+    border-bottom: 1px solid rgba(134, 150, 160, 0.1) !important; /* Garis pemisah aja */
+    border-radius: 0 !important; /* Hilangkan lengkungan kotak */
+    position: relative !important;
+    box-sizing: border-box !important;
+    transition: background 0.2s ease !important;
+}
+
+.product-item:active {
+    background: var(--wa-card-hover) !important;
+}
+
+.product-item img {
+    width: 48px !important;
+    height: 48px !important;
+    min-width: 48px !important;
+    border-radius: 50% !important; /* Produk juga bulet ala profil */
+    margin: 0 !important;
+    object-fit: cover !important;
+}
+
+.product-item h4 {
+    font-size: 16px !important;
+    font-weight: 400 !important;
+    color: var(--wa-text-primary) !important;
+    margin: 0 !important;
+    flex: 1 !important; /* Biar teks ngabisin ruang */
+    white-space: normal !important; /* Boleh bungkus teks kalau kepanjangan */
+    text-align: left !important;
+}
+
+.product-item p {
+    display: none !important; /* Sembunyikan ID/Barcode biar clean kayak chat */
+}
+
+.product-checkbox {
+    accent-color: var(--wa-green);
+    width: 20px;
+    height: 20px;
+}
+
+.selected-items-wrapper {
+    background: var(--wa-header) !important;
+    border-top: 1px solid rgba(134, 150, 160, 0.1) !important;
+    padding: 10px 16px !important;
+}
+
+.show-barcode-btn {
+    background: var(--wa-green) !important;
+    color: white !important;
+    border-radius: 20px !important;
+    padding: 8px 20px !important;
+    font-weight: 700 !important;
+    border: none !important;
+}
+
+.clear-all-btn {
+    background: transparent !important;
+    color: var(--accent-danger) !important;
+    border: none !important;
 }
 
 /* ============================================
