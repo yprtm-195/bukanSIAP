@@ -827,16 +827,19 @@ function loadAllStockData() {
     });
 }
 
-function updateManualStock(storeCode, itemCode, newValue, element) {
+// Update nilai stok hasil editan manual
+window.updateManualStock = function(storeCode, itemCode, newValue, element) {
     const state = storeStates[storeCode];
+    if (!state || state.isSynced) return;
+
     const qty = parseInt(newValue) || 0;
 
     // Update in state.stockData
-    const itemIndex = state.stockData.findIndex(i => (i.KodeBarang || i.KodeBrg || "").trim() === itemCode.trim());
-    if (itemIndex !== -1) {
-        state.stockData[itemIndex].JumSatuan = qty;
+    const item = state.stockData.find(i => (i.KodeBarang || i.KodeBrg || "").trim() === itemCode.trim());
+    if (item) {
+        item.JumSatuan = qty;
         console.log(`[STOK] ${storeCode} - ${itemCode} updated to: ${qty}`);
-        
+
         // Live color update
         if (element) {
             element.style.color = qty > 0 ? '#3fb950' : '#f85149';
@@ -847,7 +850,6 @@ function updateManualStock(storeCode, itemCode, newValue, element) {
         saveSession();
     }
 }
-
 async function reOpenStore(storeCode) {
     if (!await cimoryConfirm('Buka kuncian toko ini buat diedit/re-upload lagi?', 'Konfirmasi Buka Toko', '✏️')) return;
     
@@ -879,9 +881,17 @@ function renderStoreCards() {
         const s = storeStates[code];
         const isSkipped = s.status === 'skipped';
         return !s.isSynced && (s.status === 'checked-out' || isSkipped);
+    }).sort((a, b) => {
+        const timeA = storeStates[a].checkOutTime ? new Date(storeStates[a].checkOutTime).getTime() : 0;
+        const timeB = storeStates[b].checkOutTime ? new Date(storeStates[b].checkOutTime).getTime() : 0;
+        return timeB - timeA;
     });
 
-    const history = allStoreCodes.filter(code => storeStates[code].isSynced);
+    const history = allStoreCodes.filter(code => storeStates[code].isSynced).sort((a, b) => {
+        const timeA = storeStates[a].checkOutTime ? new Date(storeStates[a].checkOutTime).getTime() : 0;
+        const timeB = storeStates[b].checkOutTime ? new Date(storeStates[b].checkOutTime).getTime() : 0;
+        return timeB - timeA;
+    });
 
     // 2. Update Tab Badges
     updateTabBadge('tasks', tasks.length);
@@ -979,8 +989,10 @@ function createStoreCard(storeCode, state) {
 
     // 3. Time / Status Label (Top Right)
     let timeLabel = '';
-    if (state.checkInTime) {
-        const date = new Date(state.checkInTime);
+    const displayTime = (state.status === 'checked-out' && state.checkOutTime) ? state.checkOutTime : state.checkInTime;
+    
+    if (displayTime) {
+        const date = new Date(displayTime);
         timeLabel = date.getHours().toString().padStart(2, '0') + ':' + date.getMinutes().toString().padStart(2, '0');
     } else if (state.status === 'skipped') {
         timeLabel = 'Dilewati';
@@ -1008,7 +1020,11 @@ function createStoreCard(storeCode, state) {
                 <div class="store-msg-row" style="display: flex; justify-content: space-between; align-items: center; margin-top: 2px;">
                     <div class="store-last-msg" style="display: flex; align-items: center; color: var(--wa-text-secondary); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                         ${statusIcon} <span>${storeCode}</span>
-                        ${(state.isSynced || state.isSyncedFromServer) ? `
+                        ${state.isSyncing ? `
+                            <span style="font-style: italic; font-size: 11px; margin-left: 6px; color: var(--wa-green-light); opacity: 0.8;">
+                                • Toko sedang mengirim laporan...
+                            </span>
+                        ` : (state.isSynced || state.isSyncedFromServer) ? `
                             <span style="font-style: italic; font-size: 11px; margin-left: 6px; color: var(--wa-green-light); opacity: 0.8;">
                                 • Sudah masuk Cimory SIAP
                             </span>
@@ -1461,6 +1477,7 @@ function renderStockSection(storeCode, state) {
                            value="${qty}"
                            min="0"
                            inputmode="numeric"
+                           onfocus="this.select()"
                            onchange="updateManualStock('${storeCode}', '${itemCode}', this.value, this)"
                            onkeydown="handleEnterAsTab(event)"
                            onkeypress="handleEnterAsTab(event)"
@@ -1490,24 +1507,8 @@ function renderStockSection(storeCode, state) {
     `;
 }
 
-// Update nilai stok hasil editan manual
-window.updateManualStock = function(storeCode, itemCode, val) {
-    const state = storeStates[storeCode];
-    if (!state || state.isSynced) return;
-    
-    const item = state.stockData.find(i => (i.KodeBarang || i.KodeBrg || '').trim() === itemCode);
-    if (item) {
-        item.JumSatuan = parseInt(val) || 0;
-        saveSession();
-        // Skip calling refreshStoreCard here otherwise the input loses focus while typing! 
-        // Just update state dynamically. We change the text color directly on the input element if we want,
-        // but just updating state is enough.
-    }
-};
-
 // Toggle section accordion per store
-function toggleSection(storeCode, section) {
-    const state = storeStates[storeCode];
+function toggleSection(storeCode, section) {    const state = storeStates[storeCode];
     // Kalau diklik yang sama → tutup (set null), kalau beda → buka yang baru
     const opening = state.openSection !== section;
     state.openSection = opening ? section : null;
@@ -2399,44 +2400,30 @@ function closeUploadModal() {
 }
 
 async function uploadStoreData(storeCode) {
-    const payload = buildPayload(storeCode, storeStates[storeCode]);
-    
-    if (MOCK_UPLOAD) {
-        console.log(`[MOCK] Uploading RKM Data for ${storeCode}:`, payload);
-        // Verify payload here
-        if (payload.ListPicHeader && payload.ListPicHeader.length > 0) {
-            console.error('❌ ERROR: ListPicHeader should be empty in RKM Upload!');
-        } else {
-            console.log('✅ Payload check: ListPicHeader is empty.');
-        }
-        return new Promise(resolve => setTimeout(resolve, 1000)); // Simulate delay
-    }
-    
-    // Gunakan Cloudflare Workers Proxy buatan sendiri untuk ngakalin CORS
-    const url = getDmsUrl("/api/sfaservice/checkoutpostlater");
-    const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-    });
-    
-    // Read and log the actual response body from the server
-    const responseText = await response.text();
-    console.log(`[POST LATER RESPONSE Code: ${response.status}]:`, responseText);
+    const state = storeStates[storeCode];
+    state.isSyncing = true; // Set flag
+    refreshStoreCard(storeCode); // Update UI biar statusnya berubah
 
-    if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status} - ${responseText}`);
-    }
+    const payload = buildPayload(storeCode, state);
     
-    let result;
     try {
-        result = JSON.parse(responseText);
-    } catch(e) {
-        result = responseText;
+        if (MOCK_UPLOAD) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        } else {
+            const url = getDmsUrl("/api/sfaservice/checkoutpostlater");
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            
+            if (!response.ok) throw new Error(`Status: ${response.status}`);
+        }
+    } finally {
+        state.isSyncing = false; // Reset flag
+        refreshStoreCard(storeCode); // Update UI
     }
-    // Check backend response structure? "Status": "success"?
-    // Android checks boolean valid.
-    return result;
+    return { status: 'success' };
 }
 
 async function uploadPhoto(photoPayload) {
