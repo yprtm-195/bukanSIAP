@@ -2257,6 +2257,11 @@ async function sendStorePhotosToTelegram(storeCode, state) {
             } else {
                 console.log(`✅ Telegram: ${chunk.length} foto terkirim untuk ${storeCode} (chunk ${c+1})`);
             }
+            
+            // Beri nafas dikit kalo ada chunk berikutnya
+            if (chunks.length > 1) {
+                await new Promise(r => setTimeout(r, 1000));
+            }
         } catch(e) {
             console.warn('Telegram fetch error:', e);
         }
@@ -2342,8 +2347,9 @@ async function handleDualApiUpload() {
             saveSession(); 
             successStores++;
 
-            // Fire-and-forget ke Telegram (nggak ngeblok, gagal pun ga masalah)
-            sendStorePhotosToTelegram(storeCode, state).catch(e => console.warn('Telegram skip:', e));
+            // GANTI: Pake await biar antri, gak rebutan bandwidth (Ensures Reliability)
+            updateUIProgress(basePct + stepPct, null, `Mengirim Laporan ke Telegram...`);
+            await sendStorePhotosToTelegram(storeCode, state).catch(e => console.warn('Telegram skip:', e));
         } catch (error) {
             console.error(`Upload failed for ${storeCode}:`, error);
             hasError = true;
