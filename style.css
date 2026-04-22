@@ -1539,7 +1539,9 @@ body {
 /* Modifier untuk Modal yang punya Input (biar gak ketimpa keyboard HP) */
 .modal-overlay.input-modal {
     align-items: flex-start;
-    padding-top: 15vh;
+    padding-top: 5vh; /* Naikin lagi dikit biar input di atas */
+    overflow-y: auto;  /* Bisa di-scroll kalo layarnya ciut */
+    padding-bottom: 20px;
 }
 
 /* WhatsApp Style Confirmation Dialog (Checkout Modal) */

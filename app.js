@@ -2969,15 +2969,25 @@ window.addExtraCall = async function(kodeCustomer) {
 };
 
 function processExtraCallData(payload) {
+    if (!rkmData) {
+        rkmData = { ListRKMDetail: [], ListRKMStok: [], ListBarang: [], ListGrup: [], ListSubGrup: [], ListAlasan: [] };
+    }
+
     // payload is DownloadExtraCallModel
     payload.ListRKMDetail.forEach(item => {
         const d = item.RKMD;
         const storeCode = d.KodeCustomer;
         
-        // Cek kalau udah ada
+        // Cek kalau udah ada di state biar gak double
         if (storeStates[storeCode]) return;
 
-        // Bikin state baru sesuai dengan struktur RPS RKM yang baru
+        // --- PENTING: Inject ke rkmData biar fungsi global (Stock, Validasi) gak bingung ---
+        const existsInRkm = rkmData.ListRKMDetail.some(r => r.RKMD.KodeCustomer === storeCode);
+        if (!existsInRkm) {
+            rkmData.ListRKMDetail.push(item);
+        }
+
+        // Bikin state baru
         storeStates[storeCode] = {
             storeData: item,
             checkInTime: null,
@@ -2985,7 +2995,7 @@ function processExtraCallData(payload) {
             gpsLat: parseFloat(d.Latitude || 0),
             gpsLng: parseFloat(d.Longitude || 0),
             photos: { checkin: [], before: [], after: [] },
-            stockData: [], // Bakal diisi dari ListRKMStok
+            stockData: [],
             status: 'pending',
             isExpanded: false,
             openSection: 'gps',
@@ -2993,21 +3003,22 @@ function processExtraCallData(payload) {
         };
 
         // Fill stock baseline if present from extra call payload
-        let stockItems = [];
         if (payload.ListRKMStok) {
-            stockItems = payload.ListRKMStok.filter(s => s.KodeCustomer === storeCode)
-                .map(s => {
-                    return {
-                        ...s,
-                        JumSatuan: 0,
-                        JumKarton: 0,
-                        JumPcsE: 0
-                    };
-                });
+            payload.ListRKMStok.forEach(s => {
+                if (s.KodeCustomer === storeCode) {
+                    // Inject juga ke rkmData.ListRKMStok biar loadAllStockData nemu
+                    const stockExists = rkmData.ListRKMStok.some(rs => rs.KodeCustomer === storeCode && rs.KodeBarang === s.KodeBarang);
+                    if (!stockExists) {
+                        rkmData.ListRKMStok.push({
+                            ...s,
+                            JumSatuan: 0,
+                            JumKarton: 0,
+                            JumPcsE: 0
+                        });
+                    }
+                }
+            });
         }
-        
-        // Panggil fungsi global stock updater biar sinkron sama stok online jika ada
-        storeStates[storeCode].stockData = stockItems;
     });
 
     // Panggil helper ulang sinkronisasi stok
