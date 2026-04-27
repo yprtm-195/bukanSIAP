@@ -181,7 +181,6 @@ export default {
         const queryCookie = url.searchParams.get('_cookie');
         const finalCookie = queryCookie || request.headers.get('X-Cookie');
         if (finalCookie) newHeaders.set('Cookie', finalCookie);
-        
         newHeaders.set('Host', targetHostname);
 
         try {

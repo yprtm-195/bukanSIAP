@@ -190,10 +190,9 @@ function generateThumbnail(file) {
 
 /**
  * Generate filename: JPEG_yyyyMMdd_HHmmss_.jpg
- * Sekarang mendukung input date agar nama file sinkron dengan jam simulasi
  */
-function generatePhotoFilename(customDate) {
-    const now = customDate || new Date();
+function generatePhotoFilename() {
+    const now = new Date();
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const day = String(now.getDate()).padStart(2, '0');
@@ -213,38 +212,13 @@ function generatePhotoTimestamp(baseTime, minOffsetMin, maxOffsetMin) {
 }
 
 /**
- * Generate a "corrupted" looking image (Using Local Broken Icon)
- * Memuat file ./broken-icon.png dari folder project
+ * Get GroupCode for category
  */
-function generateCorruptImage() {
-    return new Promise((resolve) => {
-        const canvas = document.createElement('canvas');
-        canvas.width = 1280;
-        canvas.height = 960;
-        const ctx = canvas.getContext('2d');
-        
-        // 1. Background Putih Bersih
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-        // 2. Load Icon dari Folder Lokal
-        const img = new Image();
-        img.onload = () => {
-            // Ukuran ikon dibuat cukup besar agar kelihatan di thumbnail (misal 300x300)
-            const iconSize = 350;
-            ctx.drawImage(img, 50, 50, iconSize, iconSize);
-            resolve(canvas.toDataURL('image/jpeg', 0.8));
-        };
-        
-        img.onerror = () => {
-            // Fallback kalau filenya belum lu taruh di folder project
-            console.warn("File broken-icon.png tidak ditemukan di root project!");
-            ctx.fillStyle = '#999';
-            ctx.font = 'bold 100px Arial';
-            ctx.fillText('✕ Image Corrupt', 100, 200); 
-            resolve(canvas.toDataURL('image/jpeg', 0.8));
-        };
-        
-        img.src = "broken-icon.png"; // Pake file lokal
-    });
+function getGroupCode(category) {
+    const codes = {
+        'checkin': '001       ',  // 10 chars with trailing spaces
+        'before': '002       ',
+        'after': '003       '
+    };
+    return codes[category] || '';
 }

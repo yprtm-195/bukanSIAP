@@ -33,11 +33,14 @@ window.switchTab = function(tabId) {
         if ((tabId === 'history' || tabId === 'completed' || dataTab === 'completed') && (text.includes('selesai'))) tab.classList.add('active');
     });
 
-    // Ensure FAB Group is always visible for quick access to tools
-    const fabGroup = document.querySelector('.fab-group');
-    if (fabGroup) {
-        fabGroup.classList.remove('hidden');
-        fabGroup.style.display = 'flex';
+    // Toggle FAB Visibility (Hanya muncul di tab Tugas)
+    const fab = document.getElementById('fab-pricetag');
+    if (fab) {
+        if (tabId === 'tasks') {
+            fab.style.display = 'flex';
+        } else {
+            fab.style.display = 'none';
+        }
     }
 
     // Toggle Upload Button Visibility
@@ -132,8 +135,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // Inisialisasi Tab (Muat tab terakhir atau default ke 'tasks')
     const lastTab = localStorage.getItem('LAST_ACTIVE_TAB') || 'tasks';
     switchTab(lastTab);
-
-    if (window.lucide) lucide.createIcons();
 });
 
 // ============================================
@@ -349,7 +350,7 @@ const DMS_RKM_URL = "https://cimory-proxy.yohandi-pratama.workers.dev/api/sfaser
 async function loadDailyRKM() {
     // Cek sesi aktif dulu
     if (Object.keys(storeStates).length > 0) {
-        const proceed = await cimoryConfirm("Kalo lu nge-load RKM dari server sekarang, SEMUA KERJAAN hari ini bakal HANGUS dan mulai dari nol.\n\nLu yakin mau ngapus dan narik data baru?", "⛔ ADA SESI KERJA AKTIF!", "octagon");
+        const proceed = await cimoryConfirm("Kalo lu nge-load RKM dari server sekarang, SEMUA KERJAAN hari ini bakal HANGUS dan mulai dari nol.\n\nLu yakin mau ngapus dan narik data baru?", "⛔ ADA SESI KERJA AKTIF!", "⛔");
         if (!proceed) return;
     }
     
@@ -434,11 +435,7 @@ async function doDownloadRKM(email) {
         const response = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                Key: 'IMEI', 
-                Value: email,
-                Version: 'Ver. 1.7.6, Production Mode' // Selipin versi aplikasi biar sah
-            })
+            body: JSON.stringify({ Key: 'IMEI', Value: email })
         });
         
         if (!response.ok) throw new Error(`Server error: ${response.status}`);
@@ -456,12 +453,6 @@ async function doDownloadRKM(email) {
         
         // Data valid — langsung pakai (flat structure, no wrapper)
         const rkmPayload = data;
-        
-        // --- SAVE HEADER FOR CLOSING ---
-        if (data.RKMHeader) {
-            localStorage.setItem('RKM_HEADER_CURRENT', JSON.stringify(data.RKMHeader));
-            console.log("✅ RKMHeader saved for closing logic.");
-        }
         
         statusDiv.className = 'header-status success';
         statusDiv.textContent = `✓ Data RKM berhasil ditarik!`;
@@ -572,7 +563,7 @@ async function handleFileSelect(e) {
     const file = e.target.files[0];
     if (file) {
         if (Object.keys(storeStates).length > 0) {
-            const proceed = await cimoryConfirm("Kalo lu nge-load JSON sekarang, SEMUA KERJAAN hari ini bakal HANGUS bro.\n\nLu yakin mau nimpa pakai file ini?", "⛔ ADA SESI KERJA AKTIF!", "octagon");
+            const proceed = await cimoryConfirm("Kalo lu nge-load JSON sekarang, SEMUA KERJAAN hari ini bakal HANGUS bro.\n\nLu yakin mau nimpa pakai file ini?", "⛔ ADA SESI KERJA AKTIF!", "⛔");
             if (!proceed) {
                 e.target.value = ''; // Reset input to allow re-selecting same file later
                 return;
@@ -723,7 +714,6 @@ function processRKMData(data, isRestore = false) {
                 gpsLat: parseFloat(store.RKMD.Latitude),
                 gpsLng: parseFloat(store.RKMD.Longitude),
                 photos: { checkin: [], before: [], after: [] },
-                stagingPhotos: [], // Kolam foto sementara (VIP Feature)
                 stockData: [],
                 status: initialStatus,
                 isExpanded: false,
@@ -861,7 +851,7 @@ window.updateManualStock = function(storeCode, itemCode, newValue, element) {
     }
 }
 async function reOpenStore(storeCode) {
-    if (!await cimoryConfirm('Buka kuncian toko ini buat diedit/re-upload lagi?', 'Konfirmasi Buka Toko', 'edit-3')) return;
+    if (!await cimoryConfirm('Buka kuncian toko ini buat diedit/re-upload lagi?', 'Konfirmasi Buka Toko', '✏️')) return;
     
     const state = storeStates[storeCode];
     state.status = 'checked-in'; // Balikin status ke checked-in biar tombol OUT muncul lagi
@@ -953,10 +943,7 @@ function renderStoreCards() {
         });
     }
 
-    updateStoresCount();
     saveSession();
-
-    if (window.lucide) lucide.createIcons();
 }
 
 function updateTabBadge(tabId, count) {
@@ -981,17 +968,17 @@ function createStoreCard(storeCode, state) {
     if (state.status === 'checked-out') {
         if (state.isSynced || state.isSyncedFromServer) {
             // Ceklis Dua Biru: Sudah masuk database server
-            statusIcon = '<span style="color: #34B7F1; font-size: 16px; margin-right: 4px; display: flex;"><i data-lucide="check-check" style="width: 16px; height: 16px;"></i></span>';
+            statusIcon = '<span style="color: #34B7F1; font-size: 16px; margin-right: 4px;">✓✓</span>';
         } else {
             // Ceklis Satu Abu: Selesai di HP, tapi belum Upload
-            statusIcon = '<span style="color: var(--wa-text-secondary); font-size: 16px; margin-right: 4px; display: flex;"><i data-lucide="check" style="width: 16px; height: 16px;"></i></span>';
+            statusIcon = '<span style="color: var(--wa-text-secondary); font-size: 16px; margin-right: 4px;">✓</span>';
         }
     } else if (state.status === 'checked-in') {
         // Sedang dikerjakan
-        statusIcon = '<span style="color: var(--wa-text-secondary); font-size: 14px; margin-right: 4px; display: flex;"><i data-lucide="clock" style="width: 14px; height: 14px;"></i></span>';
+        statusIcon = '<span style="color: var(--wa-text-secondary); font-size: 14px; margin-right: 4px;">⏳</span>';
     } else if (state.status === 'skipped') {
         // Dilewati
-        statusIcon = '<span style="color: #f85149; font-size: 14px; margin-right: 4px; display: flex;"><i data-lucide="x-circle" style="width: 14px; height: 14px;"></i></span>';
+        statusIcon = '<span style="color: #f85149; font-size: 14px; margin-right: 4px;">❌</span>';
     }
 
     // 2. Unread Dot (Simple green dot for incomplete tasks)
@@ -1032,8 +1019,7 @@ function createStoreCard(storeCode, state) {
                 </div>
                 <div class="store-msg-row" style="display: flex; justify-content: space-between; align-items: center; margin-top: 2px;">
                     <div class="store-last-msg" style="display: flex; align-items: center; color: var(--wa-text-secondary); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                        ${statusIcon} 
-                        <span>${storeCode}</span>
+                        ${statusIcon} <span>${storeCode}</span>
                         ${state.isSyncing ? `
                             <span style="font-style: italic; font-size: 11px; margin-left: 6px; color: var(--wa-green-light); opacity: 0.8;">
                                 • Toko sedang mengirim laporan...
@@ -1094,18 +1080,13 @@ function renderValidationSection(storeCode, state) {
             
             <div class="validation-content">
                 <div class="validation-checklist">
-                    ${state.status === 'skipped' ? `
-                        ${renderValidationItem('Alasan dipilih', !state.reasonCode)}
-                        ${renderValidationItem('Keterangan diisi', !state.reasonText)}
-                    ` : `
-                        ${renderValidationItem('Check-In completed', !state.checkInTime)}
-                        ${renderValidationItem('Check-Out completed', !state.checkOutTime)}
-                        ${renderValidationItem(`Check-in photo (${state.photos.checkin.length}/1)`, state.photos.checkin.length !== 1)}
-                        ${renderValidationItem(`Before photos (${state.photos.before.length})`, state.photos.before.length < 1)}
-                        ${renderValidationItem(`After photos (${state.photos.after.length})`, state.photos.after.length < 1)}
-                        ${renderValidationItem('GPS coordinates set', false)}
-                        ${state.stockData.some(item => item.JumSatuan > 0) ? '' : renderWarningItem('No stock data entered')}
-                    `}
+                    ${renderValidationItem('Check-In completed', !state.checkInTime)}
+                    ${renderValidationItem('Check-Out completed', !state.checkOutTime)}
+                    ${renderValidationItem(`Check-in photo (${state.photos.checkin.length}/1)`, state.photos.checkin.length !== 1)}
+                    ${renderValidationItem(`Before photos (${state.photos.before.length})`, state.photos.before.length < 1)}
+                    ${renderValidationItem(`After photos (${state.photos.after.length})`, state.photos.after.length < 1)}
+                    ${renderValidationItem('GPS coordinates set', false)}
+                    ${state.stockData.some(item => item.JumSatuan > 0) ? '' : renderWarningItem('No stock data entered')}
                 </div>
                 ${validation.issues.length > 0 ? `
                     <div class="validation-issues">
@@ -1147,17 +1128,16 @@ function renderGPSSection(storeCode, state) {
     const defaultLat = state.storeData.RKMD.Latitude;
     const defaultLng = state.storeData.RKMD.Longitude;
     const isGPSValid = state.gpsLat !== parseFloat(defaultLat) || state.gpsLng !== parseFloat(defaultLng);
-    const isSkipped = state.status === 'skipped';
     
     const open = (state.openSection === 'gps');
 
     return `
         <div class="wa-date-separator">
-            <span class="wa-date-label"><i data-lucide="map-pin" style="width: 12px; height: 12px; vertical-align: middle; margin-right: 4px;"></i> Titik Lokasi</span>
+            <span class="wa-date-label">📍 Titik Lokasi</span>
         </div>
-        <div class="card-section ${(!isSkipped && !isGPSValid) ? 'section-incomplete' : ''}">
+        <div class="card-section ${!isGPSValid ? 'section-incomplete' : ''}">
             <div class="section-accordion-title" onclick="toggleSection('${storeCode}', 'gps')">
-                <span style="display: flex; align-items: center; gap: 6px;"><i data-lucide="map-pin" style="width: 14px; height: 14px;"></i> Koordinat & Maps</span>
+                <span>📍 Koordinat & Maps</span>
                 <span class="section-chevron ${open ? '' : 'collapsed'}">▾</span>
             </div>
             <div class="section-accordion-body ${open ? '' : 'collapsed'}">
@@ -1327,9 +1307,9 @@ function renderTimelineSection(storeCode, state) {
 
     // Photo helpers
     const photos = state.photos;
-    const isPhotoComplete = isSkipped || (photos.checkin.length >= 1 &&
+    const isPhotoComplete = photos.checkin.length >= 1 &&
                             photos.before.length  >= 1 &&
-                            photos.after.length   >= 1);
+                            photos.after.length   >= 1;
     const photoDisabled = (isReadOnly || isSkipped) ? 'disabled' : '';
 
     // Format stored timestamps ke HH:mm
@@ -1354,20 +1334,13 @@ function renderTimelineSection(storeCode, state) {
 
         if (!isReadOnly && !isSkipped && !isMaxCheckin) {
             gridHtml += `
-                <div style="display: flex; gap: 4px;">
-                    <label class="photo-add-slot" style="flex: 1;">
-                        <input type="file" accept="image/*" ${category !== 'checkin' ? 'multiple' : ''} 
-                               onchange="handlePhotoUpload('${storeCode}', '${category}', this.files, ${maxFiles})" 
-                               style="display:none;">
-                        <span class="plus-icon">+</span>
-                        <span class="plus-text">Foto</span>
-                    </label>
-                    ${isVIP ? `
-                        <button class="photo-add-slot glitch-btn" onclick="generateGlitchForCategory('${storeCode}', '${category}')" style="width: 40px; flex: 0 0 40px; background: rgba(255,255,255,0.05);">
-                            <span class="plus-icon" style="font-size: 16px;">👾</span>
-                        </button>
-                    ` : ''}
-                </div>
+                <label class="photo-add-slot">
+                    <input type="file" accept="image/*" ${category !== 'checkin' ? 'multiple' : ''} 
+                           onchange="handlePhotoUpload('${storeCode}', '${category}', this.files, ${maxFiles})" 
+                           style="display:none;">
+                    <span class="plus-icon">+</span>
+                    <span class="plus-text">Foto</span>
+                </label>
             `;
         }
         return gridHtml;
@@ -1375,62 +1348,29 @@ function renderTimelineSection(storeCode, state) {
 
     const open = (state.openSection === 'timeline');
 
-    // VIP FEATURE: Bulk Sorter Logic
-    const currentUser = localStorage.getItem('USER_EMAIL_DMS');
-    const isVIP = currentUser === 'yohandi.pratama@gmail.com';
-    const stagingPhotos = state.stagingPhotos || [];
-
-    const renderBulkSorterPool = () => {
-        if (!isVIP || isReadOnly || isSkipped || !state.checkInTime || stagingPhotos.length === 0) return '';
-        
-        return `
-            <div class="vip-bulk-sorter" style="margin-top: 10px;">
-                <div class="bulk-sorter-header" style="margin-bottom: 5px;">
-                    <span class="bulk-count">⚡ ${stagingPhotos.length} foto disiapkan (Tap IN/BF/AF)</span>
-                </div>
-                <div class="bulk-photo-pool">
-                    ${stagingPhotos.map((p, idx) => `
-                        <div class="bulk-photo-item">
-                            <img src="${p.thumbnail}" class="bulk-thumb" onclick="openImageFullStaging('${storeCode}', ${idx})" />
-                            <div class="bulk-actions">
-                                <button class="b-act b-in" onclick="assignPhotoFromStaging('${storeCode}', ${idx}, 'checkin')">IN</button>
-                                <button class="b-act b-bf" onclick="assignPhotoFromStaging('${storeCode}', ${idx}, 'before')">BF</button>
-                                <button class="b-act b-af" onclick="assignPhotoFromStaging('${storeCode}', ${idx}, 'after')">AF</button>
-                                <button class="b-act b-del" onclick="removePhotoFromStaging('${storeCode}', ${idx})">×</button>
-                            </div>
-                        </div>
-                    `).join('')}
-                </div>
-            </div>
-        `;
-    };
-
-    // Logic for section completeness visual
-    const isTimelineComplete = isSkipped || (isComplete && isPhotoComplete);
-
     return `
         <div class="wa-date-separator">
-            <span class="wa-date-label"><i data-lucide="camera" style="width: 12px; height: 12px; vertical-align: middle; margin-right: 4px;"></i> Timeline & Foto</span>
+            <span class="wa-date-label">📸 Timeline & Foto</span>
         </div>
-        <div class="card-section wa-outgoing ${!isTimelineComplete ? 'section-incomplete' : ''}">
+        <div class="card-section wa-outgoing ${!isComplete || !isPhotoComplete ? 'section-incomplete' : ''}">
             <div class="section-accordion-title" onclick="toggleSection('${storeCode}', 'timeline')">
-                <span style="display: flex; align-items: center; gap: 6px;"><i data-lucide="clock" style="width: 14px; height: 14px;"></i> Waktu Visit & Dokumentasi</span>
+                <span>⏰ Waktu Visit & Dokumentasi</span>
                 <span class="section-chevron ${open ? '' : 'collapsed'}">▾</span>
             </div>
             <div class="section-accordion-body ${open ? '' : 'collapsed'}">
 
             <div class="timeline-simple">
                 <!-- CHECK IN ROW -->
-                <div class="timeline-simple-row" style="flex-wrap: wrap; gap: 8px;">
+                <div class="timeline-simple-row">
                     <div class="timeline-time-block">
-                        <label class="timeline-simple-label">Check In <small style="font-size: 8px; opacity: 0.5;">(24h)</small></label>
+                        <label class="timeline-simple-label">   ⏰ Check In    <small style="font-size: 8px; opacity: 0.5;">(24h)</small></label>
                         <input type="text" class="time-input-simple time-input-hh time-input-checkin-hh" placeholder="HH" inputmode="numeric" maxlength="2" value="${fmtTime(state.checkInTime).split(':')[0] || ''}" ${checkInDisabled ? 'disabled' : ''} onkeydown="handleEnterAsTab(event)" onkeypress="handleEnterAsTab(event)" oninput="autoFocusNext(this)" onfocus="this.select()">
                         <span class="time-input-separator">:</span>
                         <input type="text" class="time-input-simple time-input-mm time-input-checkin-mm" placeholder="mm" inputmode="numeric" maxlength="2" value="${fmtTime(state.checkInTime).split(':')[1] || ''}" ${checkInDisabled ? 'disabled' : ''} onkeydown="handleEnterAsTab(event)" onkeypress="handleEnterAsTab(event)" onfocus="this.select()">
                         
                         ${state.status === 'checked-in' ? `
                             <button class="btn-edit-checkin" onclick="resetCheckIn('${storeCode}')" title="Edit Jam Check-In" style="background:transparent; border:none; padding: 0 5px; margin-left: 5px; cursor:pointer; font-size: 14px;">
-                                <i data-lucide="edit-3" style="width: 14px; height: 14px;"></i>
+                                ✏️
                             </button>
                         ` : ''}
                     </div>
@@ -1442,21 +1382,10 @@ function renderTimelineSection(storeCode, state) {
                     </button>
                     ${state.status === 'ready' ? `
                         <button class="btn-skip-visit" onclick="openSkipModal('${storeCode}')" title="Mark as Not Visited">
-                            ❌ Skip
+                            ❌ Tidak dikunjungi
                         </button>
                     ` : ''}
-
-                    <!-- VIP BULK BUTTON: Baru muncul kalo udah Check-In -->
-                    ${isVIP && !isReadOnly && !isSkipped && state.checkInTime ? `
-                        <label class="btn-bulk-upload" style="margin:0; padding: 10px 12px; height:auto; display:flex; align-items:center; justify-content:center;">
-                            <input type="file" accept="image/*" multiple onchange="handleBulkPhotoUpload('${storeCode}', this.files)" style="display:none;">
-                            ⚡ Bulk
-                        </label>
-                    ` : ''}
                 </div>
-
-                <!-- VIP BULK POOL (KOLAM FOTO) -->
-                ${renderBulkSorterPool()}
 
                 ${isSkipped ? `
                 <div class="skip-info-box" style="background: rgba(231, 76, 60, 0.05); padding: 12px; border-radius: 12px; border: 1px solid rgba(231, 76, 60, 0.2); margin: 10px 0;">
@@ -1511,7 +1440,7 @@ function renderTimelineSection(storeCode, state) {
                         class="btn-checkout"
                         onclick="handleCheckOut('${storeCode}')"
                         ${checkOutDisabled ? 'disabled' : ''}>
-                        ${(state.status === 'checked-out' && state.checkOutTime) ? '✅ ' + fmtTime(state.checkOutTime) : '<i data-lucide="log-out" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px;"></i> Check Out'}
+                        ${state.checkOutTime ? '✅ ' + fmtTime(state.checkOutTime) : '   ⏰ Check Out   '}
                     </button>
                 </div>
             </div>
@@ -1562,11 +1491,11 @@ function renderStockSection(storeCode, state) {
     
     return `
         <div class="wa-date-separator">
-            <span class="wa-date-label"><i data-lucide="package" style="width: 12px; height: 12px; vertical-align: middle; margin-right: 4px;"></i> Laporan Stok</span>
+            <span class="wa-date-label">📦 Laporan Stok</span>
         </div>
         <div class="card-section wa-outgoing">
             <div class="section-accordion-title" onclick="toggleSection('${storeCode}', 'stock')">
-                <span style="display: flex; align-items: center; gap: 6px;"><i data-lucide="package" style="width: 14px; height: 14px;"></i> Stok Opname (${state.stockData.length} Produk)</span>
+                <span>📦 Stok Opname (${state.stockData.length} Produk)</span>
                 <span class="section-chevron ${open ? '' : 'collapsed'}">▾</span>
             </div>
             <div class="section-accordion-body ${open ? '' : 'collapsed'}">
@@ -1633,7 +1562,7 @@ window.removePhoto = async function(storeCode, category, index) {
     const state = storeStates[storeCode];
     if (!state || state.isSynced) return;
     
-    if (await cimoryConfirm('Hapus foto ini?', 'Hapus Foto', 'trash-2')) {
+    if (await cimoryConfirm('Hapus foto ini?', 'Hapus Foto', '🗑️')) {
         state.photos[category].splice(index, 1);
         saveSession();
         refreshStoreCard(storeCode);
@@ -1727,7 +1656,7 @@ function updateGPS(storeCode, coord, value) {
 // New: Use real device GPS + apply jitter
 async function useDeviceGPS(storeCode) {
     if (!navigator.geolocation) {
-        await cimoryAlert('Browser lu tidak support Geolocation bro!', 'GPS Error', 'x-circle');
+        await cimoryAlert('Browser lu tidak support Geolocation bro!', 'GPS Error', '❌');
         return;
     }
     
@@ -1996,172 +1925,7 @@ function handleModalOverlayClick(event) {
 }
 
 // ============================================
-// VIP FEATURE: BULK PHOTO SORTER
-// ============================================
-window.handleBulkPhotoUpload = async function(storeCode, files) {
-    const state = storeStates[storeCode];
-    if (!state || state.isSynced) return;
-
-    const filesArray = Array.from(files);
-    console.log(`[VIP] Processing ${filesArray.length} photos for Bulk Sorter...`);
-    
-    // Tampilkan loading di tombol biar user gak bingung
-    const btn = document.querySelector(`[onclick*="handleBulkPhotoUpload('${storeCode}'"]`)?.parentElement;
-    const originalText = btn ? btn.innerHTML : '';
-    if (btn) btn.innerHTML = '⏳ Processing...';
-
-    for (const file of filesArray) {
-        try {
-            // Beri jeda dikit biar RAM HP napas
-            await new Promise(r => setTimeout(r, 100));
-            
-            const compressed = await compressImage(file);
-            const thumbnail = await generateThumbnail(file);
-            let telegramBlob = null;
-            try { telegramBlob = await compressImageHD(file); } catch(e) {}
-
-            state.stagingPhotos.push({
-                base64: compressed,
-                thumbnail: thumbnail,
-                telegramBlob: telegramBlob
-            });
-            
-            // Render tiap 1 foto kelar biar user liat progress
-            refreshStoreCard(storeCode);
-        } catch (err) {
-            console.error('[VIP] Error processing photo:', err);
-        }
-    }
-    
-    if (btn) btn.innerHTML = originalText;
-    saveSession();
-};
-
-window.assignPhotoFromStaging = function(storeCode, index, category) {
-    const state = storeStates[storeCode];
-    if (!state || !state.stagingPhotos[index]) return;
-
-    // Check Max Limit for Check-In
-    if (category === 'checkin' && state.photos.checkin.length >= 1) {
-        alert("Foto Check-In cuma boleh 1 bro!");
-        return;
-    }
-
-    const photo = state.stagingPhotos[index];
-    
-    // LOGIC JAM SIMULASI (JITTER)
-    let baseTime = new Date();
-    let jitteredDate;
-
-    if (category === 'checkin') {
-        // Check-In: Jam Check-In + 0-1 menit
-        baseTime = state.checkInTime || new Date();
-        jitteredDate = generatePhotoTimestamp(baseTime, 0, 1);
-    } else if (category === 'before') {
-        // Before: Jam Check-In + 2-8 menit
-        baseTime = state.checkInTime || new Date();
-        jitteredDate = generatePhotoTimestamp(baseTime, 2, 8);
-    } else if (category === 'after') {
-        // After: Jam Check-Out - 8-2 menit
-        baseTime = state.checkOutTime || new Date();
-        jitteredDate = generatePhotoTimestamp(baseTime, -8, -2);
-    }
-
-    // Pindahkan ke kategori tujuan dengan data lengkap
-    state.photos[category].push({
-        filename: generatePhotoFilename(jitteredDate), // Nama file sinkron ama jam!
-        base64: photo.base64,
-        thumbnail: photo.thumbnail,
-        telegramBlob: photo.telegramBlob,
-        timestamp: jitteredDate
-    });
-
-    // Hapus dari kolam staging
-    state.stagingPhotos.splice(index, 1);
-    
-    console.log(`[VIP] Photo moved to ${category} with timestamp:`, jitteredDate);
-    
-    refreshStoreCard(storeCode);
-    saveSession();
-};
-
-window.removePhotoFromStaging = function(storeCode, index) {
-    const state = storeStates[storeCode];
-    if (state && state.stagingPhotos) {
-        state.stagingPhotos.splice(index, 1);
-        refreshStoreCard(storeCode);
-        saveSession();
-    }
-};
-
-window.openImageFullStaging = function(storeCode, index) {
-    const state = storeStates[storeCode];
-    if (!state || !state.stagingPhotos[index]) return;
-    const base64 = state.stagingPhotos[index].base64;
-    const newTab = window.open();
-    if (newTab) {
-        newTab.document.body.style.margin = "0";
-        newTab.document.body.style.background = "#000";
-        newTab.document.body.innerHTML = `<img src="${base64}" style="max-width:100%; height:auto;">`;
-    }
-};
-
-window.generateGlitchForCategory = async function(storeCode, category) {
-    const state = storeStates[storeCode];
-    if (!state || state.isSynced) return;
-
-    if (category === 'checkin' && state.photos.checkin.length >= 1) {
-        alert("Foto Check-In cuma boleh 1 bro!");
-        return;
-    }
-
-    console.log(`[VIP] Generating Glitch Photo for ${category}...`);
-    
-    // 1. Generate Corrupt Image
-    const corruptBase64 = await generateCorruptImage();
-    
-    // 2. Generate Thumbnail (Static thumb)
-    const thumbBase64 = corruptBase64; // Thumbnail pake yang sama aja biar keliatan "rusak"
-
-    // 3. Logic Jam Simulasi
-    let baseTime = new Date();
-    let jitteredDate;
-    if (category === 'checkin') {
-        baseTime = state.checkInTime || new Date();
-        jitteredDate = generatePhotoTimestamp(baseTime, 0, 1);
-    } else if (category === 'before') {
-        baseTime = state.checkInTime || new Date();
-        jitteredDate = generatePhotoTimestamp(baseTime, 2, 8);
-    } else if (category === 'after') {
-        baseTime = state.checkOutTime || new Date();
-        jitteredDate = generatePhotoTimestamp(baseTime, -8, -2);
-    }
-
-    // 4. Masukin ke Kategori
-    state.photos[category].push({
-        filename: generatePhotoFilename(jitteredDate),
-        base64: corruptBase64,
-        thumbnail: thumbBase64,
-        timestamp: jitteredDate,
-        isGlitch: true
-    });
-
-    refreshStoreCard(storeCode);
-    saveSession();
-    console.log(`[VIP] Glitch Photo added to ${category} with timestamp:`, jitteredDate);
-};
-
-window.removePhoto = function(storeCode, category, index) {
-    const state = storeStates[storeCode];
-    if (state && state.photos[category]) {
-        state.photos[category].splice(index, 1);
-        refreshStoreCard(storeCode);
-        saveSession();
-    }
-};
-
-// ============================================
-// PHOTO UPLOAD (Original)
+// PHOTO UPLOAD
 // ============================================
 async function handlePhotoUpload(storeCode, category, files, maxFiles) {
     const state = storeStates[storeCode];
@@ -2171,7 +1935,7 @@ async function handlePhotoUpload(storeCode, category, files, maxFiles) {
     const remainingSlots = maxFiles - currentCount;
 
     if (remainingSlots <= 0) {
-        await cimoryAlert(`Slot foto ${category} sudah penuh (Max: ${maxFiles}). Hapus foto lama dulu bro.`, "Slot Penuh", "alert-triangle");
+        await cimoryAlert(`Slot foto ${category} sudah penuh (Max: ${maxFiles}). Hapus foto lama dulu bro.`, "Slot Penuh", "⚠️");
         return;
     }
 
@@ -2222,7 +1986,7 @@ async function handleUploadWithValidation() {
     if (!storeStates || Object.keys(storeStates).length === 0) return;
     
     const allCodes = Object.keys(storeStates);
-    const pendingStores = allCodes.filter(code => storeStates[code].status !== 'checked-out' && storeStates[code].status !== 'skipped');
+    const pendingStores = allCodes.filter(code => storeStates[code].status !== 'checked-out');
     
     if (pendingStores.length > 0) {
         const pendingNames = pendingStores.map(code => {
@@ -2236,7 +2000,7 @@ async function handleUploadWithValidation() {
             `Toko belum di-check-out:\n${pendingNames}\n\n` +
             `Yakin mau setor data sekarang? Toko yang belum selesai tidak akan ikut terupload.`,
             "⚠️ PERINGATAN UPLOAD",
-            "alert-triangle"
+            "⚠️"
         );
         if (!proceed) return;
     }
@@ -2254,28 +2018,7 @@ async function handleUploadWithValidation() {
 /**
  * Pengganti window.alert() - Modern & Aesthetic
  */
-window.cimoryAlert = function(message, title = "Informasi", icon = "info", duration = 0) { 
-    return new Promise((resolve) => { 
-        const dialog = document.getElementById("custom-dialog"); 
-        const titleEl = document.getElementById("dialog-title"); 
-        const msgEl = document.getElementById("dialog-message"); 
-        const iconEl = document.getElementById("dialog-icon"); 
-        const btnCancel = document.getElementById("dialog-btn-cancel"); 
-        const btnOk = document.getElementById("dialog-btn-ok"); 
-        titleEl.textContent = title; msgEl.textContent = message; 
-        iconEl.innerHTML = icon.length < 5 ? icon : `<i data-lucide="${icon}"></i>`; 
-        if (window.lucide) lucide.createIcons(); 
-        btnCancel.classList.add("hidden"); btnOk.textContent = "OK"; 
-        dialog.classList.remove("hidden"); 
-        const handleOk = () => { dialog.classList.add("hidden"); btnOk.removeEventListener("click", handleOk); resolve(); }; 
-        btnOk.addEventListener("click", handleOk); 
-        if (duration > 0) setTimeout(handleOk, duration); 
-    }); 
-};        
-/**
- * Pengganti window.confirm() - Modern & Aesthetic
- */
-window.cimoryConfirm = function(message, title = 'Konfirmasi', icon = 'help-circle') {
+window.cimoryAlert = function(message, title = 'Informasi', icon = 'ℹ️') {
     return new Promise((resolve) => {
         const dialog = document.getElementById('custom-dialog');
         const titleEl = document.getElementById('dialog-title');
@@ -2286,14 +2029,41 @@ window.cimoryConfirm = function(message, title = 'Konfirmasi', icon = 'help-circ
 
         titleEl.textContent = title;
         msgEl.textContent = message;
+        iconEl.textContent = icon;
         
-        // Render Icon (Lucide or Emoji)
-        if (icon && icon.length < 5) {
-            iconEl.innerHTML = icon;
-        } else {
-            iconEl.innerHTML = `<i data-lucide="${icon}"></i>`;
-            if (window.lucide) lucide.createIcons();
-        }
+        btnCancel.classList.add('hidden'); // Sembunyiin Batal buat Alert
+        btnOk.textContent = 'OK';
+
+        dialog.classList.remove('hidden');
+
+        const handleOk = () => {
+            dialog.classList.add('hidden');
+            btnOk.removeEventListener('click', handleOk);
+            resolve();
+        };
+
+        btnOk.addEventListener('click', handleOk);
+    });
+};
+
+/**
+ * Pengganti window.confirm() - Modern & Aesthetic
+ */
+window.cimoryConfirm = function(message, title = 'Konfirmasi', icon = '❓') {
+    return new Promise((resolve) => {
+        const dialog = document.getElementById('custom-dialog');
+        const titleEl = document.getElementById('dialog-title');
+        const msgEl = document.getElementById('dialog-message');
+        const iconEl = document.getElementById('dialog-icon');
+        const btnCancel = document.getElementById('dialog-btn-cancel');
+        const btnOk = document.getElementById('dialog-btn-ok');
+
+        titleEl.textContent = title;
+        msgEl.textContent = message;
+        iconEl.textContent = icon;
+        
+        btnCancel.classList.remove('hidden'); // Munculin Batal buat Confirm
+        btnOk.textContent = 'OKE';
 
         dialog.classList.remove('hidden');
 
@@ -2327,45 +2097,32 @@ function formatLocalISO(date) {
 }
 
 function buildPayload(storeCode, state) {
-    const isSkipped = state.status === 'skipped';
-    
-    // Ambil kordinat asli dari master data RKM
-    const masterLat = state.storeData.RKMD.Latitude;
-    const masterLng = state.storeData.RKMD.Longitude;
-
-    // Siapkan data stok. Kalo skipped, kasih KodeAlasan di tiap item.
-    const stockData = (state.stockData || [])
+    const stockData = state.stockData
         .map(item => ({
             ...item,
             JumKarton: 0,
-            JumSatuan: 0,
-            JumPcsE: 0, 
-            TanggalRKM: item.TanggalRKM || formatLocalISO(new Date()),
-            KodeAlasan: isSkipped ? (state.reasonCode || "") : ""
+            JumPcsE: 0, // Ensure expired is strictly 0
+            TanggalRKM: item.TanggalRKM || formatLocalISO(new Date())
         }));
     
     return {
         RKMDetail: {
             ...state.storeData.RKMD,
-            CheckInTime: isSkipped ? null : formatLocalISO(state.checkInTime),
-            CheckOutTime: isSkipped ? null : formatLocalISO(state.checkOutTime),
-            
-            // Jika skipped, paksa pake kordinat master toko (Biar nembus seolah-olah di lokasi)
-            CheckInLatitude: isSkipped ? masterLat : state.gpsLat,
-            CheckInLongitude: isSkipped ? masterLng : state.gpsLng,
-            CheckOutLatitude: isSkipped ? masterLat : state.gpsLat,
-            CheckOutLongitude: isSkipped ? masterLng : state.gpsLng,
-            
+            CheckInTime: formatLocalISO(state.checkInTime),
+            CheckOutTime: formatLocalISO(state.checkOutTime),
+            CheckInLatitude: state.gpsLat,
+            CheckInLongitude: state.gpsLng,
+            CheckOutLatitude: state.gpsLat,
+            CheckOutLongitude: state.gpsLng,
             // Skip Visit Fields
-            ReasonTime: isSkipped ? formatLocalISO(state.skipTime) : null,
-            Reason: isSkipped ? state.reasonText : "",
-            KodeAlasan: isSkipped ? state.reasonCode : "",
-            ReasonLatitude: isSkipped ? masterLat : 0,
-            ReasonLongitude: isSkipped ? masterLng : 0
+            ReasonTime: formatLocalISO(state.skipTime),
+            Reason: state.reasonText || "",
+            KodeAlasan: state.reasonCode || "",
+            ReasonLatitude: state.reasonLat || 0,
+            ReasonLongitude: state.reasonLng || 0
         },
-        ListPicHeader: [], 
-        // Jika skipped, kirim List Stok KOSONG TOTAL biar server SIAP gak rewel
-        ListRKMDStok: isSkipped ? [] : stockData,
+        ListPicHeader: [], // Photos uploaded separately via /uploadpict
+        ListRKMDStok: stockData,
         ListOrder: [],
         ListJualH: [],
         ListJualD: []
@@ -2512,13 +2269,6 @@ async function sendStorePhotosToTelegram(storeCode, state) {
 }
 
 // ============================================
-// SKIP VISIT LOGIC (Dulu Pake handleClosingRKM tapi dihapus karena bahaya)
-// ============================================
-// CATATAN: Jangan pernah kirim RKMHeader + EndTime kalau cuma mau lapor skip visit satu toko.
-// Gunakan uploadStoreData yang otomatis handle status 'skipped' di buildPayload.
-// ============================================
-
-// ============================================
 // DUAL-API UPLOAD LOGIC
 // ============================================
 async function handleDualApiUpload() {
@@ -2528,19 +2278,11 @@ async function handleDualApiUpload() {
     );
     
     if (activeStores.length === 0) {
-        await cimoryAlert('Tidak ada toko baru yang siap diupload.\n(Toko yang sudah sukses terupload akan dilewati)', 'Info Upload', 'info');
+        await cimoryAlert('Tidak ada toko baru yang siap diupload.\n(Toko yang sudah sukses terupload akan dilewati)', 'Info Upload', 'ℹ️');
         return;
     }
 
-    const visitedStores = activeStores.filter(code => storeStates[code].status !== 'skipped');
-    const skippedStores = activeStores.filter(code => storeStates[code].status === 'skipped');
-
-    let confirmMsg = `Siap mengirim ${activeStores.length} laporan ke server?\n\n`;
-    if (visitedStores.length > 0) confirmMsg += `✅ Dikunjungi: ${visitedStores.length} Toko\n`;
-    if (skippedStores.length > 0) confirmMsg += `❌ Di-skip: ${skippedStores.length} Toko (Hanya lapor alasan)\n`;
-    confirmMsg += `\nLanjutkan?`;
-
-    if (!await cimoryConfirm(confirmMsg, 'Konfirmasi Upload Massal', 'rocket')) {
+    if (!await cimoryConfirm(`Siap mengirim ${activeStores.length} data kunjungan TOKO BARU ke server?`, 'Konfirmasi Upload', '🚀')) {
         return;
     }
 
@@ -2584,10 +2326,7 @@ async function handleDualApiUpload() {
             const basePct = (i / totalStores) * 100;
             const stepPct = 100 / totalStores; 
             
-            updateUIProgress(basePct + (stepPct * 0.2), `📤 [${i+1}/${totalStores}] ${storeName}`, 'Mengirim Data...');
-            
-            // SEMUA status (ready/skipped/checked-out) pake uploadStoreData aja
-            // handleClosingRKM dibuang karena bikin server nganggap udah bubaran kerja
+            updateUIProgress(basePct + (stepPct * 0.2), `📤 [${i+1}/${totalStores}] ${storeName}`, 'Mengirim Data Kunjungan...');
             await uploadStoreData(storeCode);
             
             const photos = buildPhotoPayload(storeCode, state);
@@ -2604,10 +2343,7 @@ async function handleDualApiUpload() {
             }
             
             state.isSynced = true;
-            // Jika statusnya 'skipped', biarkan tetap 'skipped', jangan di-overwrite jadi 'checked-out'
-            if (state.status !== 'skipped') {
-                state.status = 'checked-out';
-            }
+            state.status = 'checked-out';
             saveSession(); 
             successStores++;
 
@@ -2758,7 +2494,7 @@ function updateStoresCount() {
     const states = Object.values(storeStates);
     const total    = states.length;
     const uploaded = states.filter(s => s.isSynced).length;
-    const ready    = states.filter(s => (s.status === 'checked-out' || s.status === 'skipped') && !s.isSynced).length;
+    const ready    = states.filter(s => s.status === 'checked-out' && !s.isSynced).length;
     const pending  = total - uploaded - ready;
 
     const el = document.getElementById('stores-count');
@@ -2800,7 +2536,7 @@ async function loginToCimorySIAP() {
         // STEP 1: Ambil halaman login dulu buat nyolong nilai "ip" (Hidden field)
         // Tambah cache-buster biar ga kena cache CORS lama bro
         const loginPageUrl = getDmsUrl(`/siap/Login?_=${Date.now()}`);
-        const getLoginRes = await fetch(loginPageUrl);
+        const getLoginRes = await fetch(loginPageUrl, { credentials: 'include' });
         const loginHtml = await getLoginRes.text();
         
         // Scraping nilai IP dari <input type="hidden" name="ip" value="...">
@@ -2824,7 +2560,8 @@ async function loginToCimorySIAP() {
                 'Content-Type': 'application/x-www-form-urlencoded'
             },
             body: params,
-            redirect: 'follow' // Kita ikutin alurnya
+            redirect: 'follow', // Kita ikutin alurnya
+            credentials: 'include'
         });
 
         if (!response.ok) throw new Error(`Login failed: ${response.status}`);
@@ -2892,11 +2629,13 @@ async function fetchServerVerificationData() {
 
         const response = await fetch(url, {
             method: 'POST',
-            headers: {
+            headers: { 
                 'Content-Type': 'application/x-www-form-urlencoded'
             },
-            body: params
-        });        
+            body: params,
+            credentials: 'include'
+        });
+        
         if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
         
         const htmlFragment = await response.text();
@@ -3029,24 +2768,8 @@ function validateStoreCompleteness(storeCode) {
     const state = storeStates[storeCode];
     const issues = [];
     const warnings = [];
-
-    // Jika Toko Tidak Dikunjungi (Skipped)
-    if (state.status === 'skipped') {
-        if (!state.reasonCode) {
-            issues.push('Alasan tidak dikunjungi wajib dipilih');
-        }
-        if (!state.reasonText) {
-            issues.push('Keterangan alasan wajib diisi');
-        }
-        return {
-            isComplete: issues.length === 0,
-            hasWarnings: false,
-            issues,
-            warnings: []
-        };
-    }
-
-    // Check visit status (Untuk kunjungan normal)
+    
+    // Check visit status
     if (!state.checkInTime) {
         issues.push('Check-in required');
     }
@@ -3056,7 +2779,7 @@ function validateStoreCompleteness(storeCode) {
     if (state.checkInTime && state.checkOutTime && state.checkOutTime <= state.checkInTime) {
         issues.push('Check-out must be after check-in');
     }
-
+    
     // Check photos
     if (state.photos.checkin.length !== 1) {
         issues.push(`Check-in photo: ${state.photos.checkin.length}/1 required`);
@@ -3067,20 +2790,20 @@ function validateStoreCompleteness(storeCode) {
     if (state.photos.after.length < 1) {
         issues.push(`After photos: ${state.photos.after.length} (Min 1 required)`);
     }
-
+    
     // Check GPS (not default values)
     const defaultLat = state.storeData.RKMD.Latitude;
     const defaultLng = state.storeData.RKMD.Longitude;
     if (state.gpsLat === defaultLat && state.gpsLng === defaultLng) {
         warnings.push('Using default GPS coordinates (consider adding jitter)');
     }
-
+    
     // Check stock (warning only)
     const hasStock = state.stockData && state.stockData.some(item => item.JumSatuan > 0);
     if (!hasStock) {
         warnings.push('No stock data entered');
     }
-
+    
     return {
         isComplete: issues.length === 0,
         hasWarnings: warnings.length > 0,
@@ -3088,6 +2811,7 @@ function validateStoreCompleteness(storeCode) {
         warnings
     };
 }
+
 
 // ============================================
 // EXTRA CALL (ADD STORE)
@@ -3132,7 +2856,7 @@ window.searchExtraCall = async function() {
     const realMdsCode = getActiveMerchandiserCode();
     
     if (!realMdsCode) {
-        await cimoryAlert("Download RKM (Server Sinkron) dulu bro biar sistem tau ID Merchandiser lu!", "Data Belum Lengkap", "alert-triangle");
+        await cimoryAlert("Download RKM (Server Sinkron) dulu bro biar sistem tau ID Merchandiser lu!", "Data Belum Lengkap", "⚠️");
         return;
     }
 
@@ -3232,13 +2956,13 @@ window.addExtraCall = async function(kodeCustomer) {
                 window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
             }, 800);
         } else {
-            await cimoryAlert("Gagal nambah toko: " + (data.ErrorMessage || "Udah ada di list?"), "Gagal Tambah Toko", "x-circle");
+            await cimoryAlert("Gagal nambah toko: " + (data.ErrorMessage || "Udah ada di list?"), "Gagal Tambah Toko", "❌");
             btn.disabled = false;
             btn.innerHTML = originalHtml;
         }
     } catch (error) {
         console.error("Add Extra Call failed:", error);
-        await cimoryAlert("Error koneksi!", "Connection Error", "x-circle");
+        await cimoryAlert("Error koneksi!", "Connection Error", "❌");
         btn.disabled = false;
         btn.innerHTML = originalHtml;
     }
@@ -3330,38 +3054,21 @@ let currentSkipStoreCode = null;
 window.openSkipModal = function(storeCode) {
     currentSkipStoreCode = storeCode;
     const modal = document.getElementById('skip-visit-modal');
-    const listContainer = document.getElementById('custom-skip-alasan-list');
-    const hiddenInput = document.getElementById('hidden-skip-alasan');
+    const select = document.getElementById('select-skip-alasan');
     const reasonText = document.getElementById('input-skip-reason');
     
     if (modal) modal.classList.remove('hidden');
     if (reasonText) reasonText.value = '';
-    if (hiddenInput) hiddenInput.value = '';
 
     // Populate Reasons from LocalStorage
     const reasonsRaw = localStorage.getItem('DMS_REASONS');
-    if (reasonsRaw && listContainer) {
-        const allReasons = JSON.parse(reasonsRaw);
-        
-        // Filter cuma nampilin alasan yang sering dipake
-        const allowedCodes = ["SA30", "SA31", "SA32", "SA33", "SA34", "SA35", "SA36", "SA39"];
-        const reasons = allReasons.filter(r => allowedCodes.includes(r.KodeAlasan));
-
-        listContainer.innerHTML = reasons.map(r => `
-            <div class="reason-option-card" onclick="selectReason('${r.KodeAlasan}', this)">
-                ${r.NamaAlasan}
-            </div>
-        `).join('');
+    if (reasonsRaw && select) {
+        const reasons = JSON.parse(reasonsRaw);
+        select.innerHTML = '<option value="">- Belum dipilih -</option>' + 
+            reasons.map(r => `<option value="${r.KodeAlasan}">${r.NamaAlasan}</option>`).join('');
     } else {
-        listContainer.innerHTML = '<div style="color: var(--accent-danger); padding: 10px;">(Error: Data Alasan Kosong!)</div>';
+        select.innerHTML = '<option value="">(Error: Data Alasan Kosong!)</option>';
     }
-};
-
-window.selectReason = function(code, el) {
-    const hiddenInput = document.getElementById('hidden-skip-alasan');
-    if (hiddenInput) hiddenInput.value = code;
-    document.querySelectorAll('.reason-option-card').forEach(card => card.classList.remove('active'));
-    el.classList.add('active');
 };
 
 window.closeSkipModal = function() {
@@ -3372,20 +3079,19 @@ window.closeSkipModal = function() {
 window.submitSkipVisit = async function() {
     if (!currentSkipStoreCode) return;
 
-    const hiddenInput = document.getElementById('hidden-skip-alasan');
+    const select = document.getElementById('select-skip-alasan');
     const reasonInput = document.getElementById('input-skip-reason');
     const btn = document.getElementById('btn-save-skip');
     
-    const reasonCode = hiddenInput ? hiddenInput.value : '';
+    const reasonCode = select.value;
     const reasonText = reasonInput.value.trim();
 
     if (!reasonCode) {
-        await cimoryAlert("Pilih alasan resminya dulu bro! Klik salah satu kartu alasan di atas.", "Alasan Wajib Dipilih", "alert-triangle");
+        await cimoryAlert("Pilih alasan resminya dulu bro!", "Form Belum Lengkap", "⚠️");
         return;
     }
-    if (!reasonText || reasonText.length < 5) {
-        await cimoryAlert("Isi keterangan tambahan minimal 5 karakter bro, biar admin tau kondisi lapangan!", "Keterangan Wajib Diisi", "alert-triangle");
-        if (reasonInput) reasonInput.focus();
+    if (!reasonText) {
+        await cimoryAlert("Kasih keterangan dikit lah bro biar admin nggak nanya-nanya!", "Form Belum Lengkap", "⚠️");
         return;
     }
 
@@ -3393,9 +3099,9 @@ window.submitSkipVisit = async function() {
     btn.textContent = "⏳ Menyimpan...";
 
     try {
-        // Nangkep kordinat toko aja langsung bro (Biar nembus)
-        let lat = storeStates[currentSkipStoreCode]?.gpsLat || 0;
-        let lng = storeStates[currentSkipStoreCode]?.gpsLng || 0;
+        // Nangkep kordinat terakhir (pake store kordinat kalo GPS alat error)
+        let lat = currentLat || storeStates[currentSkipStoreCode]?.gpsLat || 0;
+        let lng = currentLng || storeStates[currentSkipStoreCode]?.gpsLng || 0;
 
         // Update State
         storeStates[currentSkipStoreCode].status = 'skipped';
@@ -3410,10 +3116,10 @@ window.submitSkipVisit = async function() {
         renderStoreCards(); // Updated from renderStores()
         
         closeSkipModal();
-        await cimoryAlert("Sip bro, status toko berhasil diupdate jadi 'Terlewati'.", "Sukses Update", "check-circle");
+        await cimoryAlert("Sip bro, status toko berhasil diupdate jadi 'Terlewati'.", "Sukses Update", "✅");
     } catch (e) {
         console.error("Skip Visit failed:", e);
-        await cimoryAlert("Gagal update status!", "Error", "x-circle");
+        await cimoryAlert("Gagal update status!", "Error", "❌");
     } finally {
         btn.disabled = false;
         btn.textContent = "SIMPAN ALASAN";
@@ -3607,7 +3313,7 @@ window.syncServerVerification = async function(isAuto = false) {
             lastServerSyncTime = Date.now(); // Update cooldown
             
             if (!isAuto) {
-                await cimoryAlert(`Sinkronisasi Selesai!\n${matchedCount} Toko terverifikasi di server SIAP.`, "Verified", "check-circle");
+                await cimoryAlert(`Sinkronisasi Selesai!\n${matchedCount} Toko terverifikasi di server SIAP.`, "Verified", "✅");
             }
         } else {
             throw new Error(result.message || "Gagal Login / Tarik Data");
@@ -3616,7 +3322,7 @@ window.syncServerVerification = async function(isAuto = false) {
         console.error("[Verification] Error:", err);
         // Kalau auto-sync gagal, diam aja (silent-fail) biar ga ganggu
         if (!isAuto) {
-            await cimoryAlert("Gagal sinkron server: " + err.message, "Sync Failed", "x-circle");
+            await cimoryAlert("Gagal sinkron server: " + err.message, "Sync Failed", "❌");
         }
     } finally {
         if (overlay) overlay.classList.add('hidden');
@@ -3680,360 +3386,3 @@ function parseVerificationHTML(html) {
     
     return visits;
 }
-
-let wmSelectedFiles = []; 
-let wmTestFile = null; 
-
-window.openWatermarkModal = function() {
-    const modal = document.getElementById('watermark-modal');
-    document.getElementById('wm-selected-store-name').innerText = '-- Pilih Toko --';
-    document.getElementById('wm-store-select').value = '';
-    document.getElementById('wm-store-search-input').value = '';
-    document.getElementById('wm-store-search-box').classList.add('hidden');
-    renderWmStoreList();
-    wmSelectedFiles = [];
-    renderWmPreviews();
-    modal.classList.remove('hidden');
-    if (typeof lucide !== 'undefined') lucide.createIcons();
-};
-
-window.toggleWmStoreSearch = function() {
-    const box = document.getElementById('wm-store-search-box');
-    box.classList.toggle('hidden');
-    if (!box.classList.contains('hidden')) document.getElementById('wm-store-search-input').focus();
-};
-
-window.renderWmStoreList = function(filter = '') {
-    const listEl = document.getElementById('wm-store-list');
-    if (!listEl) return;
-    listEl.innerHTML = '';
-    if (!rkmData || !rkmData.ListRKMDetail) return;
-    const filtered = rkmData.ListRKMDetail.filter(item => {
-        const code = item.RKMD.KodeCustomer;
-        const name = (item.RKMD.NamaCustomer || item.NamaCustomer || '').toLowerCase();
-        return code.includes(filter.toLowerCase()) || name.includes(filter.toLowerCase());
-    });
-    filtered.forEach(item => {
-        const div = document.createElement('div');
-        div.className = 'wm-store-item';
-        div.innerHTML = `<span class="store-code">${item.RKMD.KodeCustomer}</span><span class="store-name">${item.RKMD.NamaCustomer || item.NamaCustomer}</span>`;
-        div.onclick = () => selectWmStore(item.RKMD.KodeCustomer, item.RKMD.NamaCustomer || item.NamaCustomer);
-        listEl.appendChild(div);
-    });
-};
-
-window.filterWmStoreList = function() { renderWmStoreList(document.getElementById('wm-store-search-input').value); };
-window.selectWmStore = function(code, name) {
-    document.getElementById('wm-selected-store-name').innerText = `[${code}] ${name}`;
-    document.getElementById('wm-store-select').value = code;
-    document.getElementById('wm-store-search-box').classList.add('hidden');
-    autoFillWmFromStore(code);
-};
-
-window.autoFillWmFromStore = function(storeCode) {
-    const state = storeStates[storeCode];
-    if (!state) return;
-    const infoEl = document.getElementById("wm-prev-out-info");
-    let targetDate = null;
-    let msg = "";
-    if (state.checkInTime) {
-        targetDate = new Date(state.checkInTime);
-        msg = "Jam In tersimpan.";
-    } else {
-        const completed = Object.keys(storeStates)
-            .filter(code => storeStates[code].checkOutTime && code !== storeCode)
-            .map(code => ({ name: storeStates[code].storeData?.RKMD?.NamaCustomer || code, out: new Date(storeStates[code].checkOutTime) }))
-            .sort((a, b) => b.out - a.out);
-        if (completed.length > 0) {
-            targetDate = completed[0].out;
-            const hh = String(targetDate.getHours()).padStart(2,"0");
-            const mm = String(targetDate.getMinutes()).padStart(2,"0");
-            msg = `Acuan: ${completed[0].name.substring(0,12)}.. (${hh}:${mm})`;
-        }
-    }
-    if (targetDate) {
-        document.getElementById("wm-start-hh").value = String(targetDate.getHours()).padStart(2,"0");
-        document.getElementById("wm-start-mm").value = String(targetDate.getMinutes()).padStart(2,"0");
-    }
-    if (infoEl) infoEl.innerText = msg;
-};
-
-window.importPhotosFromStore = async function() {
-    const storeCode = document.getElementById('wm-store-select').value;
-    if (!storeCode) return alert("Pilih toko!");
-    const state = storeStates[storeCode];
-    if (!state) return;
-    for (const cat of ['checkin', 'before', 'after']) {
-        for (const p of (state.photos[cat] || [])) {
-            try { const res = await fetch(p.base64); const blob = await res.blob(); wmSelectedFiles.push({ file: new File([blob], p.filename, {type:'image/jpeg'}), thumbnail: p.thumbnail, type: cat }); } catch (e) {}
-        }
-    }
-    renderWmPreviews(); updateWmLivePreview();
-    const hasFiles = wmSelectedFiles.length > 0;
-    document.getElementById('btn-wm-generate').disabled = !hasFiles;
-    document.getElementById('btn-wm-export').disabled = !hasFiles;
-};
-
-window.openWmSettings = function() {
-    const settings = JSON.parse(localStorage.getItem('WM_UI_SETTINGS')) || { size: 23, px: 2, py: 2, mode: '1' };
-    document.getElementById('input-wm-size').value = settings.size;
-    document.getElementById('input-wm-px').value = settings.px;
-    document.getElementById('input-wm-py').value = settings.py;
-    document.getElementById('wm-mode-select').value = settings.mode || '1';
-    document.getElementById('wm-user-name').value = localStorage.getItem('USER_WM_NAME') || '';
-    document.getElementById('wm-settings-modal').classList.remove('hidden');
-    updateWmLivePreview();
-};
-
-window.handleWmTestFile = function(file) { if (file) { wmTestFile = file; updateWmLivePreview(); } };
-
-window.updateWmLivePreview = async function() {
-    const size = document.getElementById('input-wm-size').value;
-    const px = document.getElementById('input-wm-px').value;
-    const py = document.getElementById('input-wm-py').value;
-    const mode = document.getElementById('wm-mode-select').value;
-    const userName = document.getElementById('wm-user-name').value || '';
-    if (document.getElementById('val-wm-size')) document.getElementById('val-wm-size').innerText = (size/10).toFixed(1) + '%';
-    if (document.getElementById('val-wm-px')) document.getElementById('val-wm-px').innerText = px + '%';
-    if (document.getElementById('val-wm-py')) document.getElementById('val-wm-py').innerText = py + '%';
-    localStorage.setItem('WM_UI_SETTINGS', JSON.stringify({ size, px, py, mode }));
-    localStorage.setItem('USER_WM_NAME', userName);
-    const canvas = document.getElementById('wm-preview-canvas');
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    let src = wmTestFile || (wmSelectedFiles.length > 0 ? wmSelectedFiles[0].file : null);
-    if (src) {
-        document.getElementById('wm-preview-placeholder').style.display = 'none';
-        const img = new Image(); img.src = URL.createObjectURL(src);
-        img.onload = () => {
-            canvas.width = img.width; canvas.height = img.height;
-            ctx.drawImage(img, 0, 0);
-            const fs = Math.round(canvas.height * (size / 1000));
-            ctx.font = `${fs}px sans-serif`; ctx.fillStyle = 'white'; ctx.textAlign = 'right';
-            ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 6; ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 2;
-            const pX = canvas.width * (px / 100); const pY = canvas.height * (py / 100);
-            const displayNm = userName || 'NAMA PETUGAS';
-            if (mode === '1') {
-                ctx.fillText(displayNm, canvas.width - pX, canvas.height - pY);
-                ctx.fillText("-6.123456 106.123456", canvas.width - pX, canvas.height - pY - (fs * 1.25));
-                ctx.fillText("24 April 2026 10:00", canvas.width - pX, canvas.height - pY - (fs * 2.5));
-            } else {
-                ctx.fillText("24 April 2026 10:00", canvas.width - pX, canvas.height - pY);
-                ctx.fillText(displayNm, canvas.width - pX, canvas.height - pY - (fs * 1.25));
-            }
-        };
-    }
-};
-
-window.handleWmFiles = async function(files) {
-    const filesArray = Array.from(files);
-    for (const f of filesArray) { 
-        const t = await generateThumbnail(f); 
-        wmSelectedFiles.push({ file: f, thumbnail: t, type: 'after' }); 
-    }
-    wmSelectedFiles.forEach((item, idx) => {
-        if (idx === 0) item.type = 'checkin';
-        else if (idx === 1) item.type = 'before';
-        else if (idx === wmSelectedFiles.length - 1 && wmSelectedFiles.length > 2) item.type = 'checkout';
-        else item.type = 'after';
-    });
-    renderWmPreviews(); updateWmLivePreview();
-    const ok = wmSelectedFiles.length > 0;
-    document.getElementById('btn-wm-generate').disabled = !ok; 
-    document.getElementById('btn-wm-export').disabled = !ok;
-};
-
-window.renderWmPreviews = function() {
-    const container = document.getElementById('wm-preview-list');
-    if (!container) return;
-    container.innerHTML = wmSelectedFiles.map((item, idx) => {
-        const colors = { "checkin": "#34B7F1", "before": "#FF9800", "after": "#4CAF50", "checkout": "#E91E63" };
-        const bgColor = colors[item.type] || "#444";
-        return `<div class="wm-preview-item" style="border: 2px solid ${bgColor}; position: relative; border-radius: 8px; overflow: hidden; background: #000; aspect-ratio: 3/4;">
-                <img src="${item.thumbnail}" style="width: 100%; height: 100%; object-fit: cover; opacity: 0.8;">
-                <select style="position: absolute; bottom: 0; left: 0; width: 100%; background: ${bgColor}; color: white; border: none; font-size: 10px; padding: 4px; cursor: pointer; text-align: center; font-weight: bold; appearance: none;" onchange="updateWmFileType(${idx}, this.value)">
-                    <option value="checkin" ${item.type==="checkin"?"selected":""}>IN</option>
-                    <option value="before" ${item.type==="before"?"selected":""}>BF</option>
-                    <option value="after" ${item.type==="after"?"selected":""}>AF</option>
-                    <option value="checkout" ${item.type==="checkout"?"selected":""}>CO</option>
-                </select>
-                <button style="position: absolute; top: 5px; right: 5px; background: rgba(248,81,73,0.9); color: white; border: none; width: 20px; height: 20px; border-radius: 50%; font-size: 14px; display: flex; align-items: center; justify-content: center; cursor: pointer;" onclick="removeWmFile(${idx})">&times;</button>
-            </div>`;
-    }).join('');
-};
-
-window.updateWmFileType = function(idx, type) { wmSelectedFiles[idx].type = type; updateWmLivePreview(); renderWmPreviews(); };
-window.removeWmFile = function(idx) { wmSelectedFiles.splice(idx, 1); renderWmPreviews(); updateWmLivePreview(); };
-window.closeWatermarkModal = function() { document.getElementById('watermark-modal').classList.add('hidden'); };
-
-window.generateWatermarkedPhotos = async function() {
-    const sets = JSON.parse(localStorage.getItem("WM_UI_SETTINGS")) || { size: 23, px: 2, py: 2, mode: '1' };
-    const code = document.getElementById("wm-store-select").value;
-    const startHH = document.getElementById("wm-start-hh").value;
-    const startMM = document.getElementById("wm-start-mm").value;
-    const userName = document.getElementById("wm-user-name").value || '';
-    const duration = parseInt(document.getElementById("wm-duration").value) || 30;
-    if (!code || startHH === "" || startMM === "" || !userName) return alert("Lengkapi data!");
-    localStorage.setItem('USER_WM_NAME', userName);
-    const btn = document.getElementById("btn-wm-generate");
-    btn.disabled = true; btn.innerText = "⌛...";
-    const state = storeStates[code];
-    const lat = state.storeData.RKMD.Latitude; const lng = state.storeData.RKMD.Longitude;
-    let base = new Date(); base.setHours(parseInt(startHH), parseInt(startMM), 0, 0);
-    const processed = [];
-    const typeOrder = {"checkin":1, "before":2, "after":3, "checkout":4};
-    const sorted = [...wmSelectedFiles].sort((a,b) => typeOrder[a.type] - typeOrder[b.type]);
-    for (let i = 0; i < sorted.length; i++) {
-        const item = sorted[i]; let pTime;
-        if (item.type === "checkin") pTime = new Date(base.getTime() + (i * 5000));
-        else if (item.type === "before") pTime = new Date(base.getTime() + (2 * 60000) + (i * 10000));
-        else if (item.type === "checkout") pTime = new Date(base.getTime() + (duration * 60000));
-        else pTime = new Date(base.getTime() + (duration - 3) * 60000 + (i * 15000));
-        const blob = await drawWatermarkOnCanvas(item.file, pTime, lat, lng, userName, sets.size, sets.px, sets.py, sets.mode);
-        processed.push(new File([blob], generatePhotoFilename(pTime), { type: "image/jpeg" }));
-    }
-    if (navigator.share && navigator.canShare && navigator.canShare({ files: processed })) {
-        try { await navigator.share({ files: processed, title: `Laporan ${code}`, text: `Laporan kunjungan ${code} - ${userName}` }); } catch (e) {
-            processed.forEach(f => { const a = document.createElement("a"); a.href = URL.createObjectURL(f); a.download = f.name; a.click(); });
-        }
-    } else {
-        processed.forEach(f => { const a = document.createElement("a"); a.href = URL.createObjectURL(f); a.download = f.name; a.click(); });
-    }
-    btn.disabled = false; btn.innerText = "🚀 SHARE WA";
-};
-
-window.exportWmToStore = async function() {
-    const code = document.getElementById("wm-store-select").value;
-    const startHH = document.getElementById("wm-start-hh").value;
-    const startMM = document.getElementById("wm-start-mm").value;
-    const duration = parseInt(document.getElementById("wm-duration").value) || 30;
-    if (!code || startHH === "" || startMM === "") return alert("Pilih toko & jam!");
-    const state = storeStates[code];
-    if (!state) return;
-    const exportable = wmSelectedFiles.filter(f => f.type !== "checkout");
-    if (state.checkInTime) { if (!await cimoryConfirm(`Toko sudah ada data. TIMPA?`, "Overwrite")) return; }
-    else { if (!await cimoryConfirm(`Export ${exportable.length} foto ke ${code}?`, "Export")) return; }
-    const start = new Date(); start.setHours(parseInt(startHH), parseInt(startMM), 0, 0);
-    state.checkInTime = start; state.checkOutTime = new Date(start.getTime() + (duration * 60000)); state.status = "checked-in"; 
-    state.photos.checkin = []; state.photos.before = []; state.photos.after = [];
-    for (const item of exportable) {
-        const base64 = await new Promise(r => { const f = new FileReader(); f.onload = e => r(e.target.result); f.readAsDataURL(item.file); });
-        state.photos[item.type].push({ filename: generatePhotoFilename(start), base64, thumbnail: item.thumbnail, timestamp: new Date() });
-    }
-    renderStoreCards(); saveSession(); closeWatermarkModal(); 
-    await cimoryAlert("Berhasil Export ke Laporan Toko! 🚀", "Sukses", "check-circle");
-};
-
-async function drawWatermarkOnCanvas(file, date, lat, lng, name, size, px, py, mode='1') {
-    return new Promise((resolve) => {
-        const img = new Image();
-        img.onload = () => {
-            const canvas = document.createElement('canvas'); canvas.width = img.width; canvas.height = img.height;
-            const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0);
-            const fs = Math.round(canvas.height * (size / 1000));
-            ctx.font = `${fs}px sans-serif`; ctx.fillStyle = 'white'; ctx.textAlign = 'right';
-            ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 6; ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 2;
-            const padX = canvas.width * (px / 100); const padY = canvas.height * (py / 100);
-            const months = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
-            const dateStr = `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()} ${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}`;
-            if (mode === '1') {
-                ctx.fillText(name, canvas.width - padX, canvas.height - padY);
-                ctx.fillText(`${parseFloat(lat).toFixed(6)} ${parseFloat(lng).toFixed(6)}`, canvas.width - padX, canvas.height - padY - (fs * 1.25));
-                ctx.fillText(dateStr, canvas.width - padX, canvas.height - padY - (fs * 2.5));
-            } else {
-                ctx.fillText(dateStr, canvas.width - padX, canvas.height - padY);
-                ctx.fillText(name, canvas.width - padX, canvas.height - padY - (fs * 1.25));
-            }
-            canvas.toBlob(resolve, 'image/jpeg', 0.85);
-        };
-        img.src = URL.createObjectURL(file);
-    });
-}
-
-window.adjustWmSetting = function(id, delta) {
-    const el = document.getElementById(id);
-    if (el) {
-        const val = parseInt(el.value) + delta;
-        if (val >= parseInt(el.min) && val <= parseInt(el.max)) { el.value = val; updateWmLivePreview(); }
-    }
-};
-
-window.adjustWmDuration = function(delta) {
-    const el = document.getElementById('wm-duration');
-    if (el) {
-        let val = parseInt(el.value) + delta;
-        if (val < 1) val = 1;
-        el.value = val;
-    }
-};
-
-document.addEventListener('DOMContentLoaded', () => { if (typeof lucide !== 'undefined') lucide.createIcons(); });
-
-window.copyStoreInfo = function(code, name) {
-    const text = `[${code}] ${name}`;
-    navigator.clipboard.writeText(text).then(() => {
-        cimoryAlert(`Info toko ${text} berhasil disalin ke clipboard! 📋`, "Berhasil Salin", "check-circle", 1500);
-    }).catch(err => console.error("Gagal copy:", err));
-};
-
-// ============================================
-// MOBILE PRO GESTURES (LONG PRESS & SWIPE)
-// ============================================
-(function() {
-    let tStartX = 0, tStartY = 0, lpTimer = null, isLp = false;
-    const tabsOrder = ['tasks', 'ready', 'history'];
-
-    document.addEventListener('DOMContentLoaded', () => {
-        const app = document.querySelector('.app-container') || document.body;
-        if (!app) return;
-
-        app.addEventListener('touchstart', e => {
-            tStartX = e.touches[0].clientX; tStartY = e.touches[0].clientY; isLp = false;
-            const card = e.target.closest('.store-card');
-            if (card) {
-                lpTimer = setTimeout(() => {
-                    isLp = true;
-                    if (window.navigator.vibrate) window.navigator.vibrate(50);
-                    const code = card.dataset.storeCode;
-                    const name = card.querySelector('.store-name').innerText;
-                    copyStoreInfo(code, name);
-                }, 750);
-            }
-        }, { passive: true });
-
-        app.addEventListener('touchmove', e => {
-            const diffX = Math.abs(e.touches[0].clientX - tStartX);
-            const diffY = Math.abs(e.touches[0].clientY - tStartY);
-            if (diffX > 10 || diffY > 10) clearTimeout(lpTimer);
-        }, { passive: true });
-
-        app.addEventListener('touchend', e => {
-            clearTimeout(lpTimer);
-            const tEndX = e.changedTouches[0].clientX;
-            const tEndY = e.changedTouches[0].clientY;
-            const diffX = tEndX - tStartX;
-            const diffY = tEndY - tStartY;
-
-            if (isLp) {
-                // If it was a long press, prevent clicking other things
-            } else if (Math.abs(diffX) > 100 && Math.abs(diffX) > Math.abs(diffY)) {
-                // SWIPE LOGIC
-                const activeTab = document.querySelector('.tab-item.active, .nav-tab.active');
-                if (activeTab) {
-                    const clickAttr = activeTab.getAttribute('onclick');
-                    const match = clickAttr ? clickAttr.match(/'(.*?)'/) : null;
-                    if (match) {
-                        const currentTabId = match[1];
-                        let currentIndex = tabsOrder.indexOf(currentTabId);
-                        if (diffX < 0 && currentIndex < tabsOrder.length - 1) switchTab(tabsOrder[currentIndex + 1]);
-                        else if (diffX > 0 && currentIndex > 0) switchTab(tabsOrder[currentIndex - 1]);
-                    }
-                }
-            }
-        }, { passive: false });
-    });
-})();
-
-document.addEventListener('DOMContentLoaded', () => {
-    if (typeof lucide !== 'undefined') lucide.createIcons();
-});

@@ -199,19 +199,18 @@ async function getCachedImage(url) {
     }
 }
 
-let hasUnsavedChanges = false;
-let originalSelectedProducts = "[]";
-
-// Fungsi untuk mengecek perubahan
-function checkForChanges() {
-    const currentSelectedProducts = JSON.stringify(selectedProducts);
-    hasUnsavedChanges = currentSelectedProducts !== originalSelectedProducts;
-}
-
 // Fungsi untuk mencegah refresh tidak sengaja
 function preventAccidentalRefresh() {
+    let hasUnsavedChanges = false;
+
     // Deteksi perubahan pada produk yang dipilih
-    originalSelectedProducts = JSON.stringify(selectedProducts);
+    const originalSelectedProducts = JSON.stringify(selectedProducts);
+
+    // Fungsi untuk mengecek perubahan
+    function checkForChanges() {
+        const currentSelectedProducts = JSON.stringify(selectedProducts);
+        hasUnsavedChanges = currentSelectedProducts !== originalSelectedProducts;
+    }
 
     // Tambahkan event listener untuk perubahan produk
     document.addEventListener('change', () => {
@@ -476,8 +475,8 @@ async function showBarcode() {
         JsBarcode("#barcode-image", product.id, {
             format: "EAN13",
     lineColor: "#000",
-    width: 3,
-    height: 120,
+    width: 2,
+    height: 100,
     displayValue: true
         });
     } catch (e) {
