@@ -4094,6 +4094,21 @@ window.generateWatermarkedPhotos = async function() {
     localStorage.setItem('USER_WM_NAME', userName);
     const btn = document.getElementById("btn-wm-generate");
     btn.disabled = true; btn.innerText = "⌛...";
+
+    // --- Tampilkan Global Loader ---
+    const loader = document.getElementById('global-loader');
+    const loaderTitle = document.getElementById('loader-title');
+    const loaderText = document.getElementById('loader-text');
+    const loaderBar = document.getElementById('loader-progress-bar');
+    const loaderPct = document.getElementById('loader-progress-text');
+    
+    if (loader) {
+        loader.classList.remove('hidden');
+        loaderTitle.textContent = 'Watermarking...';
+        loaderText.textContent = `Sedang memproses ${wmSelectedFiles.length} foto...`;
+        loaderBar.style.width = '0%';
+        loaderPct.textContent = '0%';
+    }
     
     const state = storeStates[code];
     const lat = state.storeData.RKMD.Latitude; 
@@ -4106,6 +4121,7 @@ window.generateWatermarkedPhotos = async function() {
     const typeOrder = {"checkin":1, "before":2, "after":3, "checkout":4};
     const sorted = [...wmSelectedFiles].sort((a,b) => typeOrder[a.type] - typeOrder[b.type]);
     
+    // 1. Proses Watermarking
     for (let i = 0; i < sorted.length; i++) {
         const item = sorted[i]; 
         let pTime;
@@ -4116,6 +4132,11 @@ window.generateWatermarkedPhotos = async function() {
         
         const blob = await drawWatermarkOnCanvas(item.file, pTime, lat, lng, userName, sets.size, sets.px, sets.py, sets.mode);
         processed.push(new File([blob], generatePhotoFilename(pTime), { type: "image/jpeg" }));
+
+        // Update Progress UI (0-70%)
+        const pct = Math.round(((i + 1) / sorted.length) * 70);
+        if (loaderBar) loaderBar.style.width = pct + '%';
+        if (loaderPct) loaderPct.textContent = pct + '%';
     }
 
     // TELEGRAM VIP LOGIC (Double Send: Polos & Watermark)
@@ -4123,18 +4144,36 @@ window.generateWatermarkedPhotos = async function() {
     const isVIP = currentUserEmail === 'yohandi.pratama@gmail.com' || userName.toLowerCase().includes('yohandi pratama');
 
     if (isVIP) {
+        if (loaderTitle) loaderTitle.textContent = 'Sending Telegram...';
+        if (loaderText) loaderText.textContent = 'Mengirim album ke grup Rekap Foto...';
+        
         const storeName = state.storeData?.RKMD?.NamaCustomer || state.storeData?.NamaCustomer || code;
         const caption = `🚀 [WATERMARK] Laporan Masuk!\n🏪 Toko: ${storeName} (${code})\n👤 MDS: ${userName}\n⏰ Visit: ${startHH}:${startMM} (${duration}m)`;
         
         const vipChatId = (typeof TELEGRAM_CHAT_ID_VIP !== 'undefined') ? TELEGRAM_CHAT_ID_VIP : TELEGRAM_CHAT_ID;
+        
+        // Simulasikan progress Telegram (70-100%)
+        if (loaderBar) loaderBar.style.width = '85%';
+        if (loaderPct) loaderPct.textContent = '85%';
+        
         await sendPhotosToTelegram(processed, caption, vipChatId); 
         
-        // Kasih notif biar nggak bingung kenapa nggak ada download
+        if (loaderBar) loaderBar.style.width = '100%';
+        if (loaderPct) loaderPct.textContent = '100%';
+        
+        // Sembunyikan loader sebelum alert
+        if (loader) loader.classList.add('hidden');
+        
         await cimoryAlert("Laporan VIP Berhasil Terkirim ke Telegram! 🚀", "Success", "check-circle");
         btn.disabled = false; 
         btn.innerText = "🚀 SHARE WA";
-        return; // STOP DI SINI (Skip Download/Share)
+        return; 
     }
+
+    // FINAL PROGRESS
+    if (loaderBar) loaderBar.style.width = '100%';
+    if (loaderPct) loaderPct.textContent = '100%';
+    setTimeout(() => { if (loader) loader.classList.add('hidden'); }, 500);
 
     // NORMAL USER LOGIC (Download/Share)
     if (navigator.share && navigator.canShare && navigator.canShare({ files: processed })) {
