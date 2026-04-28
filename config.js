@@ -5,6 +5,7 @@
 
 const TELEGRAM_BOT_TOKEN = '8598352643:AAH0qjP0m9VbseF2nf5unU7p6Wi5NZvLSq4';
 const TELEGRAM_CHAT_ID   = '-5132691420';
+const TELEGRAM_CHAT_ID_VIP = '-5104705327'; // ✅ Grup Khusus Backup VIP (Rekap Foto)
 const TELEGRAM_ENABLED = true; // ✅ Aktif
 
 const MOCK_UPLOAD = false; // ✅ PRODUCTION MODE
