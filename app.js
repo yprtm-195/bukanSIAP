@@ -2382,9 +2382,9 @@ function buildPayload(storeCode, state) {
     const stockData = (state.stockData || [])
         .map(item => ({
             ...item,
-            JumKarton: 0,
-            JumSatuan: 0,
-            JumPcsE: 0, 
+            JumKarton: item.JumKarton || 0,
+            JumSatuan: item.JumSatuan || 0, // AMAN: Pakai nilai dari state (bukan paksa 0)
+            JumPcsE: item.JumPcsE || 0, 
             TanggalRKM: item.TanggalRKM || formatLocalISO(new Date()),
             KodeAlasan: isSkipped ? (state.reasonCode || "") : ""
         }));
