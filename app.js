@@ -47,7 +47,12 @@ window.switchTab = function(tabId) {
     const uploadBtn = document.getElementById('btn-upload');
     const isSelesaiTab = (tabId === 'history' || tabId === 'completed');
     
-    if (isSelesaiTab) {
+    // Cari tau apa ada toko yang siap upload (checked-out tapi belum synced)
+    const hasReadyStores = Object.keys(storeStates).some(code => 
+        (storeStates[code].status === 'checked-out' || storeStates[code].status === 'skipped') && !storeStates[code].isSynced
+    );
+
+    if (isSelesaiTab && !hasReadyStores) {
         if (uploadBtn) uploadBtn.classList.add('hidden');
         
         // AUTO-TRIGGER: Sinkronkan otomatis pas tab Selesai dibuka
@@ -1037,9 +1042,14 @@ function createStoreCard(storeCode, state) {
                                 • Toko sedang mengirim laporan...
                             </span>
                         ` : (state.isSynced || state.isSyncedFromServer) ? `
-                            <span style="font-style: italic; font-size: 11px; margin-left: 6px; color: var(--wa-green-light); opacity: 0.8;">
-                                • Sudah masuk Cimory SIAP
-                            </span>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-style: italic; font-size: 11px; margin-left: 6px; color: var(--wa-green-light); opacity: 0.8;">
+                                    • Sudah masuk Cimory SIAP
+                                </span>
+                                <button onclick="event.stopPropagation(); reOpenStore('${storeCode}')" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(88, 166, 255, 0.4); color: var(--accent-primary); font-size: 10px; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-weight: bold;">
+                                    ✏️ EDIT
+                                </button>
+                            </div>
                         ` : ''}
                     </div>
                     ${unreadDot}
@@ -1555,6 +1565,11 @@ function renderStockSection(storeCode, state) {
                 <span class="section-chevron ${open ? '' : 'collapsed'}">▾</span>
             </div>
             <div class="section-accordion-body ${open ? '' : 'collapsed'}">
+                <div style="margin-bottom: 12px; display: flex; justify-content: flex-end;">
+                    <button id="btn-sync-stock-${storeCode}" class="btn-secondary" style="font-size: 11px; padding: 4px 10px; border-radius: 20px; background: rgba(88, 166, 255, 0.1); color: var(--accent-primary); border-color: rgba(88, 166, 255, 0.3);" onclick="event.stopPropagation(); syncStoreStock('${storeCode}')">
+                        🔄 Sync Stok
+                    </button>
+                </div>
                 <div class="stock-list">
                     ${stockList || '<p style="color: rgba(255,255,255,0.4); text-align: center;">Tidak ada data stok</p>'}
                 </div>
@@ -4318,3 +4333,130 @@ window.adjustWmDuration = function(delta) {
 document.addEventListener('DOMContentLoaded', () => { 
     if (typeof lucide !== 'undefined') lucide.createIcons(); 
 });
+
+// ============================================
+// SINGLE STORE STOCK SYNC
+// ============================================
+window.syncStoreStock = async function(storeCode) {
+    const btn = document.querySelector(`#btn-sync-stock-${storeCode}`);
+    
+    // --- Tampilkan Global Loader ---
+    const loader = document.getElementById('global-loader');
+    const loaderTitle = document.getElementById('loader-title');
+    const loaderText = document.getElementById('loader-text');
+    const loaderBar = document.getElementById('loader-progress-bar');
+    const loaderPct = document.getElementById('loader-progress-text');
+    
+    if (loader) {
+        loader.classList.remove('hidden');
+        loaderTitle.textContent = 'Syncing Stock...';
+        loaderText.textContent = `Menarik data stok terbaru dari server untuk toko ${storeCode}...`;
+        loaderBar.style.width = '30%';
+        loaderPct.textContent = '30%';
+    }
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '⏳ Syncing...';
+    }
+
+    try {
+        // 1. Tarik data terbaru dari GitHub
+        const response = await fetch(STOCK_API_URL + '?t=' + Date.now()); 
+        if (loaderBar) loaderBar.style.width = '60%';
+        if (loaderPct) loaderPct.textContent = '60%';
+        
+        const rawData = await response.json();
+        
+        // 2. Transform
+        const transformed = {};
+        Object.keys(rawData).forEach(code => {
+            const storeStock = {};
+            rawData[code].forEach(item => {
+                if (item.kodeproduk && Array.isArray(item.kodeproduk)) {
+                    item.kodeproduk.forEach(pCode => {
+                        storeStock[pCode] = { qty: item.stock || 0, namaproduk: item.namaproduk };
+                    });
+                }
+            });
+            transformed[code] = storeStock;
+        });
+        
+        externalStockData = transformed;
+        
+        // 3. Update state toko
+        const state = storeStates[storeCode];
+        if (state && state.stockData) {
+            const extData = externalStockData[storeCode] || {};
+            let updatedCount = 0;
+            
+            state.stockData.forEach(item => {
+                const itemCode = (item.KodeBarang || item.KodeBrg || "").trim();
+                if (extData[itemCode]) {
+                    item.JumSatuan = extData[itemCode].qty;
+                    updatedCount++;
+                }
+            });
+            
+            saveSession();
+            
+            if (loaderBar) loaderBar.style.width = '90%';
+            if (loaderPct) loaderPct.textContent = '90%';
+
+            // Re-render stok di UI
+            const stockContainer = getActiveStoreContainer(storeCode);
+            if (stockContainer) {
+                const stockBody = stockContainer.querySelector('.stock-list');
+                if (stockBody) {
+                    const sortedStock = [...state.stockData].sort((a, b) => {
+                        const codeA = (a.KodeBarang || a.KodeBrg || "").trim();
+                        const codeB = (b.KodeBarang || b.KodeBrg || "").trim();
+                        return codeA.localeCompare(codeB, undefined, { numeric: true });
+                    });
+                    
+                    stockBody.innerHTML = sortedStock.map(item => {
+                        const itemCode = (item.KodeBarang || item.KodeBrg || "").trim();
+                        const qty = item.JumSatuan || 0;
+                        const name = item.NamaBrg || item.NamaBarang || 'Unknown Product';
+                        const qtyColor = qty > 0 ? '#3fb950' : '#f85149';
+                        return `
+                            <div class="stock-item">
+                                <span class="stock-name">${itemCode} - ${name}</span>
+                                <div class="stock-input-wrapper">
+                                    <input type="number" class="manual-stock-input" style="color: ${qtyColor}; font-weight: ${qty > 0 ? 'bold' : 'normal'};" value="${qty}" min="0" inputmode="numeric" onfocus="this.select()" onchange="updateManualStock('${storeCode}', '${itemCode}', this.value, this)" onkeydown="handleEnterAsTab(event)" ${state.isSynced ? 'disabled' : ''}>
+                                    <span class="stock-unit">pcs</span>
+                                </div>
+                            </div>`;
+                    }).join('');
+                }
+            }
+            
+            if (loaderBar) loaderBar.style.width = '100%';
+            if (loaderPct) loaderPct.textContent = '100%';
+            
+            setTimeout(() => { if (loader) loader.classList.add('hidden'); }, 500);
+
+            if (btn) { 
+                btn.innerHTML = '✅ Berhasil'; 
+                setTimeout(() => { btn.disabled = false; btn.innerHTML = '🔄 Sync Stok'; }, 2000); 
+            }
+        }
+    } catch (err) {
+        console.error('[Sync Error]', err);
+        if (loader) loader.classList.add('hidden');
+        cimoryAlert('Gagal tarik stok terbaru bro. Cek koneksi!', 'Error', 'x-circle');
+        if (btn) { btn.disabled = false; btn.innerHTML = '🔄 Sync Stok'; }
+    }
+}
+
+// Helper buat cari container card toko yang lagi aktif (di list atau modal)
+function getActiveStoreContainer(storeCode) {
+    // Cek di modal dulu
+    const modalBody = document.getElementById('store-detail-body');
+    const modalContainer = modalBody.querySelector(`[data-store-code="${storeCode}"]`);
+    if (modalContainer && !document.getElementById('store-detail-modal').classList.contains('hidden')) {
+        return modalContainer;
+    }
+    // Kalo gak ketemu di modal, cari di list utama
+    return document.getElementById(`store-card-${storeCode}`);
+}
