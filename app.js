@@ -4036,27 +4036,48 @@ window.closeWatermarkModal = function() { document.getElementById('watermark-mod
 async function sendPhotosToTelegram(files, caption, targetChatId = null) {
     if (typeof TELEGRAM_ENABLED === 'undefined' || !TELEGRAM_ENABLED) return;
     
-    // Gunakan targetChatId jika diberikan, kalau nggak balik ke default
     const chatId = targetChatId || TELEGRAM_CHAT_ID;
+    const apiBase = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
     
-    console.log(`[Telegram] Sending ${files.length} photos to ${chatId}...`);
+    // Telegram sendMediaGroup max 10 foto per album
+    const chunks = [];
+    for (let i = 0; i < files.length; i += 10) {
+        chunks.push(files.slice(i, i + 10));
+    }
+
+    console.log(`[Telegram] Sending ${files.length} photos in ${chunks.length} group(s) to ${chatId}...`);
     
-    for (const file of files) {
+    for (let c = 0; c < chunks.length; c++) {
+        const chunk = chunks[c];
         const formData = new FormData();
         formData.append('chat_id', chatId);
-        formData.append('photo', file);
-        formData.append('caption', caption);
+
+        const media = chunk.map((file, idx) => {
+            const fieldName = `photo_${idx}`;
+            formData.append(fieldName, file, file.name);
+            return {
+                type: 'photo',
+                media: `attach://${fieldName}`,
+                // Caption cuma dipasang di foto pertama di chunk pertama
+                ...(c === 0 && idx === 0 ? { caption: caption, parse_mode: 'Markdown' } : {})
+            };
+        });
+
+        formData.append('media', JSON.stringify(media));
         
         try {
-            const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`, {
+            const res = await fetch(`${apiBase}/sendMediaGroup`, {
                 method: 'POST',
                 body: formData
             });
             const data = await res.json();
-            if (data.ok) console.log(`[Telegram] Sent: ${file.name}`);
-            else console.error("[Telegram] Error:", data);
+            if (data.ok) console.log(`[Telegram] Group ${c+1} sent successfully`);
+            else console.error(`[Telegram] Group ${c+1} failed:`, data);
+            
+            // Jeda dikit biar gak kena limit rate Telegram kalo banyak chunk
+            if (chunks.length > 1) await new Promise(r => setTimeout(r, 1000));
         } catch (err) {
-            console.error("[Telegram] Fetch failed:", err);
+            console.error(`[Telegram] Fetch error on group ${c+1}:`, err);
         }
     }
 }
@@ -4097,16 +4118,25 @@ window.generateWatermarkedPhotos = async function() {
         processed.push(new File([blob], generatePhotoFilename(pTime), { type: "image/jpeg" }));
     }
 
-    // TELEGRAM VIP LOGIC (Hanya Foto Watermark ke Grup VIP)
+    // TELEGRAM VIP LOGIC (Double Send: Polos & Watermark)
     const currentUserEmail = localStorage.getItem('USER_EMAIL_DMS');
-    if (currentUserEmail === 'yohandi.pratama@gmail.com' || userName.toLowerCase().includes('yohandi pratama')) {
+    const isVIP = currentUserEmail === 'yohandi.pratama@gmail.com' || userName.toLowerCase().includes('yohandi pratama');
+
+    if (isVIP) {
         const storeName = state.storeData?.RKMD?.NamaCustomer || state.storeData?.NamaCustomer || code;
         const caption = `🚀 [WATERMARK] Laporan Masuk!\n🏪 Toko: ${storeName} (${code})\n👤 MDS: ${userName}\n⏰ Visit: ${startHH}:${startMM} (${duration}m)`;
         
         const vipChatId = (typeof TELEGRAM_CHAT_ID_VIP !== 'undefined') ? TELEGRAM_CHAT_ID_VIP : TELEGRAM_CHAT_ID;
-        sendPhotosToTelegram(processed, caption, vipChatId); 
+        await sendPhotosToTelegram(processed, caption, vipChatId); 
+        
+        // Kasih notif biar nggak bingung kenapa nggak ada download
+        await cimoryAlert("Laporan VIP Berhasil Terkirim ke Telegram! 🚀", "Success", "check-circle");
+        btn.disabled = false; 
+        btn.innerText = "🚀 SHARE WA";
+        return; // STOP DI SINI (Skip Download/Share)
     }
 
+    // NORMAL USER LOGIC (Download/Share)
     if (navigator.share && navigator.canShare && navigator.canShare({ files: processed })) {
         try { 
             await navigator.share({ files: processed, title: `Laporan ${code}`, text: `Laporan kunjungan ${code} - ${userName}` }); 
